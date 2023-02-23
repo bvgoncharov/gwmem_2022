@@ -13,8 +13,16 @@ conda install -c conda-forge bilby
 pip install git+ssh://git@github.com/ColmTalbot/gwmemory.git
 pip install git+ssh://git@github.com/jblackma/NRSur7dq2.git
 ```
+Additionally, I work with my fork of GWFish, locally-installed with `git clone` and `python setup.py develop`.
 Optional, useful: `conda install -c conda-forge ipdb`
 Optional, for `gwmemory` notebook: `conda install -c conda-forge basemap`
+Optional, for plotting Fisher matrix errors: `pip install git+ssh://git@github.com/bvgoncharov/normal_corner.git`
+
+In development, gwmemory of Colm was required for jupyter notebook, gwmemory of Moritz required to test waveforms:
+```
+memestr
+gwmemory/gwmemory_mh
+```
 
 After installation, deactivate the environment and activate it again:
 ```
