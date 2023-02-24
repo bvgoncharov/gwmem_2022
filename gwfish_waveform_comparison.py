@@ -62,7 +62,7 @@ parameters = pd.read_hdf(pop_file)
 #parameters.ra = 0.0
 #parameters.dec = 0.0
 #parameters.theta_jn = np.pi/2 # 0.01
-#parameters.geocent_time = 0.0
+parameters.geocent_time = 0.0
 #parameters.psi = 0.
 logging.warning('Hard-setting GW phase to pi/2, to avoid discrepancies between TD and SPH waveforms. Phase is not incorporated in TD waveforms, can be fixed in the future.')
 parameters.phase = np.pi/2 # TD waveforms are without phase, whereas phase is included for SPH waveforms. This hardcoding makes SPH and TD waveforms consistent
@@ -101,8 +101,10 @@ parameters.phase = np.pi/2 # TD waveforms are without phase, whereas phase is in
 #other_waveform = 'IMRPhenomTPHM'
 #other_waveform = 'NRHybSur3dq8'
 #waveform_models = ['lalsim_IMRPhenomXPHM', other_waveform]
+#waveform_models = ['NRSur7dq4','NRSur7dq4','NRSur7dq4']
 waveform_models = ['NRHybSur3dq8', 'NRHybSur3dq8', 'NRHybSur3dq8']
 #waveform_models = ['IMRPhenomXPHM', 'IMRPhenomTPHM', 'NRHybSur3dq8']
+#waveform_models = ['IMRPhenomTPHM', 'IMRPhenomTPHM', 'IMRPhenomTPHM']
 colors = ['red', 'green', 'blue']
 linestyles = ['-','--',':']
 network = {}
@@ -116,9 +118,10 @@ np.random.seed(0)
 #waveform_class = [gw.waveforms.LALFD_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gw.waveforms.LALTD_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gu.LALTD_SPH_Waveform, gw.waveforms.LALTD_Waveform]
-waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform, gu.LALTD_SPH_Waveform]
+#waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALFD_Waveform, gw.waveforms.LALFD_Waveform]
 #waveform_class = [gw.waveforms.LALTD_Waveform, gu.LALTD_SPH_Waveform, gu.LALTD_SPH_Memory]
+waveform_class = [gu.LALTD_SPH_Memory, gu.LALTD_SPH_Waveform, gw.waveforms.LALTD_Waveform]
 #waveform_class = [gu.LALTD_SPH_Waveform, gu.LALTD_SPH_Memory]
 #waveform_class = [gw.waveforms.IMRPhenomD, gw.waveforms.LALFD_Waveform]
 
@@ -171,9 +174,9 @@ for wm, wc, co, ls in zip(waveform_models, waveform_class, colors, linestyles):
     # Time-domain
     if hasattr(waveform_obj, 'lal_time_ht_plus'):
         axs[0,0].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+:'+new_key, color=co, linestyle=ls)
-        axs[0,0].set_xlim([-0.1,0.03])
+        axs[0,0].set_xlim([-0.01,0.01])
         axs[1,0].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx:'+new_key, color=co, linestyle=ls)
-        axs[1,0].set_xlim([-0.1,0.03])
+        axs[1,0].set_xlim([-0.01,0.01])
         axs[0,1].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+:'+new_key, color=co, linestyle=ls)
         axs[0,1].set_xlim([-10,-1])
         axs[1,1].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx:'+new_key, color=co, linestyle=ls)

@@ -117,6 +117,26 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
     def l_max(self, new_l_max):
         self._l_max = new_l_max
 
+    @property
+    def time_domain_f_min(self):
+        """
+        From fundamental Fourier transform relations, for frequency series with 
+        f_max and delta_f, we need to have data duration: 
+        T = 2 * f_max * delta_t / delta_f. 
+        So, we need to have a time-domain waveform longer than that. This is 
+        why f_min that we choose may be different from this required f_min for 
+        time-domain data FFT.
+        """
+        return 3.
+
+    @property
+    def _lal_mass_1(self):
+        return self.gw_params['mass_1'] * lal.MSUN_SI * (1 + self.gw_params['redshift'])
+
+    @property
+    def _lal_mass_2(self):
+        return self.gw_params['mass_2'] * lal.MSUN_SI * (1 + self.gw_params['redshift'])
+
     # [NOTE] Commented-out text is for when frequency vector has changed
     # In principle, this should not happen. For LAL FFT, only specific vectors
     # are required. So, one should show a warning.
@@ -157,18 +177,18 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
         might be a better option.
         """
         if lalsim.SimInspiralImplementedTDApproximants(self._approx_lal):
-            #self._waveform_postprocessing = self._ht_postproccessing_SimInspiralCTDM
-            self._waveform_postprocessing = self._ht_postproccessing_SimInspiralTD
+            self._waveform_postprocessing = self._ht_postproccessing_SimInspiralCTDM
+            #self._waveform_postprocessing = self._ht_postproccessing_SimInspiralTD
             self._lalsim_caller = lalsim.SimInspiralChooseTDModes # general
             #self._lalsim_caller = lalsim.SimInspiralModesTD # no spin!
             self._lalsim_args = [
                 0, # phiRef, unused parameter
                 self.delta_t,
-                self.gw_params['mass_1'] * lal.MSUN_SI * (1 + self.gw_params['redshift']),  # in [kg]
-                self.gw_params['mass_2'] * lal.MSUN_SI * (1 + self.gw_params['redshift']),  # in [kg]
+                self._lal_mass_1,
+                self._lal_mass_2,
                 self.gw_params['spin_1x'], self.gw_params['spin_1y'], self.gw_params['spin_1z'],
                 self.gw_params['spin_2x'], self.gw_params['spin_2y'], self.gw_params['spin_2z'],
-                3., #self.f_min,
+                self.time_domain_f_min,
                 self.f_ref,
                 self.gw_params['luminosity_distance'] * lal.PC_SI * 1e6,  # in [m]
                 self._params_lal,
@@ -232,6 +252,9 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
 
         fake_neg_modes = not np.any([mm < 0 for (ll, mm) in self._lal_hlms])
         for (ll, mm) in self._lal_hlms:
+            # To test modes, not a good idea to use because of possible confusion
+            #if ll > self.l_max:
+            #    continue
             ylm = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], # inclination 
                                                     self.gw_params['phase'], -2, ll, mm)
             # LAL: Cross-polarization is the *negative* of the imaginary part
@@ -252,8 +275,32 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
         self._td_strain_from_sph_modes()
         self._waveform_postprocessing()
 
+    def _taper(self):
+        """
+        Data conditioning: option 1, that might change fRef.
+        This is based on SimInspiralTDfromTD.
+        """
+
+        extra_time_fraction = 0.1
+        extra_cycles = 3.0
+        textra = extra_cycles / self.f_min
+
+        tchirp = lalsim.SimInspiralChirpTimeBound(self.f_min, 
+            self._lal_mass_1,
+            self._lal_mass_2,
+            self.gw_params['spin_1z'], self.gw_params['spin_2z'])
+
+        fisco = 1.0 / (np.power(6.0, 1.5) * lal.PI * \
+                (self._lal_mass_1 + self._lal_mass_2) * \
+                lal.MTSUN_SI / lal.MSUN_SI)
+
+        # Calling data conditioning
+        lalsim.SimInspiralTDConditionStage1(self._lal_ht_plus, self._lal_ht_cross, extra_time_fraction * tchirp + textra, self.time_domain_f_min)
+        lalsim.SimInspiralTDConditionStage2(self._lal_ht_plus, self._lal_ht_cross, self.f_min, fisco)
+
     def _ht_postproccessing_SimInspiralCTDM(self):
-        pass
+        self._taper()
+        self._ht_postproccessing_SimInspiralTD()
 
 
 class LALTD_SPH_Memory(LALTD_SPH_Waveform):
@@ -377,6 +424,34 @@ def nrsur_memestr(waveform, frequencyvector, mass_1, mass_2, luminosity_distance
         memestr.waveforms.nrhybsur3dq8.fd_nr_sur(np.squeeze(frequencyvector),qq,M_tot,chiA,chiB,luminosity_distance,theta_jn,phase)
         import ipdb; ipdb.set_trace()
 
+class GWSurrogate_Waveform(wf.LALTD_Waveform):
+    def __init__(self, name, gw_params, data_params):
+        super().__init__(name, gw_params, data_params)
+        self._m1_m2_to_mtot_q()
+
+    def _m1_m2_to_mtot_q(self):
+        self.gw_params['total_mass'] = self.gw_params['mass_1'] + self.gw_params['mass_2']
+        self.gw_params['mass_ratio'] = self.gw_params['mass_1'] / self.gw_params['mass_2']
+        if self.gw_params['mass_1'] < self.gw_params['mass_2']:
+            self.gw_params['mass_ratio'] = 1. / self.gw_params['mass_ratio']
+
+    #def calculate_time_domain_strain(self):
+    #    tt, hh, dyn = sur(self.gw_params['mass_ratio'], 
+    #                      [self.gw_params['spin_1x'], self.gw_params['spin_1y'], self.gw_params['spin_1z']],
+    #                      [self.gw_params['spin_2x'], self.gw_params['spin_2y'], self.gw_params['spin_2z']], 
+    #                      dt=self.delta_t, f_low=3., f_ref=self.f_ref, ellMax=4., M=M_tot, dist_mpc=luminosity_distance, inclination=theta_jn, phi_ref=phase, units='mks')
+
+    #    self._waveform_postprocessing()
+
+    #    htp = self.ht_plus_out[:, np.newaxis]
+    #    htc = self.ht_cross_out[:, np.newaxis]
+
+    #    polarizations = np.hstack((htp, htc))
+
+    #    print('Warning: inverting hx in LAL caller')
+
+    #    self._time_domain_strain = polarizations
+
 def nrsur_caller(waveform, frequencyvector, mass_1, mass_2, luminosity_distance, redshift, theta_jn, phase, geocent_time,
            a_1=0, tilt_1=0, phi_12=0, a_2=0, tilt_2=0, phi_jl=0, lambda_1=0, lambda_2=0, **kwargs):
     """
@@ -491,7 +566,7 @@ def nrsur_caller(waveform, frequencyvector, mass_1, mass_2, luminosity_distance,
         lalsim.SimInspiralTDConditionStage2(lal_hh_plus, lal_hh_cross, f_min, fisco)
 
         # [V - CHECK!] AT THIS STAGE WAVEFORMS AGREE IN CYCLES/AMPLITUDE
-        logging.warning('At this stage waveforms agree in cycles/amplitude with LAL')
+        #logging.warning('At this stage waveforms agree in cycles/amplitude with LAL')
 
         # COPYING _ht_postproccessing_SimInspiralTD()
         if True: # to keep padding from left, as in waveforms.py
