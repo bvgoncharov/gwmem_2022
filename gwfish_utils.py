@@ -11,6 +11,9 @@ import GWFish.modules.fft as fft
 
 import gwtools
 from gwtools import sxs_memory
+import sxs
+
+import time
 
 try:
     import gwsurrogate
@@ -74,6 +77,70 @@ from matplotlib import pyplot as plt
 #
 #    return hphc, t_of_f, frequencyvector
 
+def sxs_waveform_to_h_lm_dict(sxs_waveform, all_possible_modes):
+    return {(ll, mm): np.array( sxs_waveform[:,sxs_waveform.index(ll,mm)] ) \
+            for (ll, mm) in all_possible_modes}
+
+def h_lm_dict_to_sxs_waveform(h_lm, times, mem_additional_ell=0):
+    """ Create SXS WaveformModes objects from a dictionary of strain (l,m) modes.
+    Based on gwtools.add_memory().
+
+    Input
+    =====
+    h_lm:    dictionary of oscillatory modes. For example,
+    
+                 hdict_tmp[(2,2)] = np.array( [...] )
+  
+    mem_additional_ell: compute memory modes beyond ell_max found from h_lm
+  
+       Example: if the largest ell in h_lm is ell=3, and mem_additional_ell=2
+                then compute memory modes up to ell=5.
+  
+       Note: compute time quickly goes up with ell!
+    
+    Output
+    ======
+    memory_sxs: dictionary of memory modes
+    
+    """
+ 
+    # find the maximum/min value of ell stored in hdict_tmp
+
+    #max_ell=-1
+    #min_ell=100
+    #last_mode = None
+    #for mode in h_lm.keys():
+    #  ell = mode[0]
+    #  if ell > max_ell:
+    #    max_ell = ell
+    #  if ell < min_ell:
+    #    min_ell = ell
+    #  last_mode = mode
+  
+    #assert(last_mode is not None)
+
+    # Above replaced by:
+    max_ell = max(h_lm)[0]
+    min_ell = min(h_lm)[0]
+
+    # compute more or less memory modes than oscillatory modes
+    max_ell = max_ell + mem_additional_ell
+  
+    modes = [(ell, m) for ell in range(2, max_ell+1) for m in range(-ell,ell+1)]
+
+    sxs_modes = []
+    for mode in modes:
+      if mode in h_lm.keys():
+        sxs_modes.append( h_lm[mode] )
+      else:
+        sxs_modes.append( np.zeros_like(h_lm[last_mode]) )
+    sxs_modes = np.array( sxs_modes )
+  
+    h_test = sxs.waveforms.WaveformModes(sxs_modes.transpose(), time=times, modes_axis=1, time_axis=0, ell_min=min_ell, ell_max=max_ell)
+    h_test._metadata['spin_weight'] = -2
+  
+    return h_test
+
 # For conversion to/from dimensionless units
 def amp_rescale_coeff(dist, m_tot):
     """
@@ -101,7 +168,6 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
         self._lal_hf_cross = None
         self.idx_low = None
         self.idx_high = None
-        logging.warning('Waveform is not tapered/conditioned, but it does not seem to affect PE at this point (make sure to check results against LALTD_Waveform, to confirm). Implement in the future.')
 
     @property
     def l_max(self):
@@ -203,7 +269,9 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
         ts: time series data from LALSimulation
         """
         required_length = int(self.t_obs / self.delta_t)
-        logging.warning('Rounding up time vectors. An error/warning should be given here if t_obs is not fold of delta_t')
+        if self.t_obs % self.delta_t != 0:
+            raise ValueError('self.t_obs=1/self.delta_f should be a multiple of self.delta_t.')
+        #logging.warning('Rounding up time vectors. An error/warning should be given here if t_obs is not fold of delta_t')
         ts = lal.ResizeCOMPLEX16TimeSeries(ts, ts.data.length-required_length, required_length)
         return ts
 
@@ -251,6 +319,7 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
         self._lal_ht_cross.data.data = np.zeros(self._lal_ht_cross.data.length)
 
         fake_neg_modes = not np.any([mm < 0 for (ll, mm) in self._lal_hlms])
+
         for (ll, mm) in self._lal_hlms:
             # To test modes, not a good idea to use because of possible confusion
             #if ll > self.l_max:
@@ -267,7 +336,6 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
                                                         self.gw_params['phase'], -2, ll, -mm)
                 self._lal_ht_plus.data.data += np.real(yl_m * (-1)**(ll) * np.conjugate(self._lal_hlms[(ll, mm)].data.data))
                 self._lal_ht_cross.data.data -= np.imag(yl_m * (-1)**(ll) * np.conjugate(self._lal_hlms[(ll, mm)].data.data))
-
         # Here, waveform is not conditioned
 
     def calculate_time_domain_strain(self):
@@ -307,11 +375,25 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
     def __init__(self, name, gw_params, data_params):
         self.l_max = None
         super(LALTD_SPH_Waveform, self).__init__(name, gw_params, data_params)
-        self._memory_modes = None
+        self._sxs_hlms_du = None
+        self._J_J_modes = None
+        self._J_E_modes = None
+
+    def update_gw_params(self, new_gw_params):
+        self.gw_params.update(new_gw_params)
+        self._frequency_domain_strain = None
+        self._time_domain_strain = None
+        # Specific to LALTD_SPH_Memory (this class)
+        #self._J_J_modes = None
+        #self._J_E_modes = None
+        # Specific to LALFD_Waveform
+        self._init_lambda()
+        self._init_lal_gw_parameters()
+        self._setup_lal_caller_args()
 
     def calculate_time_domain_strain(self):
         self.calculate_time_domain_sph_modes()
-        self._calculate_memory()
+        self._add_missing_lms_in_lal_hlms()
         self._add_memory()
         self._td_strain_from_sph_modes()
         self._waveform_postprocessing()
@@ -345,30 +427,92 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
     def fd_memory(self):
         return None
 
+    #def _fake_negative_sph_modes(self):
+    #    fake_neg_modes = not np.any([mm < 0 for (ll, mm) in self._lal_hlms])
+    #    for (ll, mm) in self._lal_hlms:
+
+    #    (-1)**(ll) * np.conjugate(self._lal_hlms[(ll, mm)].data.data)
+
     def _add_memory(self):
-        #self.new_modes = 0
-        for lm in self.memory_modes.keys():
-            if lm in self._lal_hlms:
-                self._lal_hlms[lm].data.data += self.memory_modes[lm]
-            else:
-                logging.warning('Not summing negative m modes, check implications (something for negative frequencies, for precession).')
-                #self._lal_hlms[lm] = self.memory_modes[lm]
-                #self.new_modes += 1
-        #print('Number of new SPH modes after memory calculation: ', \
-        #      self.new_modes)
+        if self.calculate_J_J_modes:
+            for lm in self.possible_modes:
+                self._lal_hlms[lm].data.data += self.J_J_modes[lm] * self.amp_rescale
+        if self.calculate_J_E_modes:
+            for lm in self.possible_modes:
+                self._lal_hlms[lm].data.data += self.J_E_modes[lm] * self.amp_rescale
+
+        ## Old way, based on gwtools.sxs_memory:
+        ##self.new_modes = 0
+        #for lm in self.memory_modes.keys():
+        #    if lm in self._lal_hlms:
+        #        self._lal_hlms[lm].data.data += self.memory_modes[lm]
+        #    else:
+        #        logging.warning('Not summing negative m modes, check implications (something for negative frequencies, for precession).')
+        #        #self._lal_hlms[lm] = self.memory_modes[lm]
+        #        #self.new_modes += 1
+        ##print('Number of new SPH modes after memory calculation: ', \
+        ##      self.new_modes)
+
+    #@property
+    #def memory_modes(self):
+    #    """ GW memory SPH modes """
+    #    if self._memory_modes is None:
+    #        self._memory_modes = {kk: vv * self.amp_rescale \
+    #                              for kk, vv in self.h_mem_sxs.items()}
+    #    return self._memory_modes
+
+    #def _calculate_memory(self):
+    #    """ Calculation is performed in SXS in dimensionless units """
+
+    #    # In an old way, based on gwtools.sxs_memory:
+    #    #self.h_mem_sxs, self.times_sxs = sxs_memory(self._lal_hlms_du, \
+    #    #                                            self._lal_time_hlms_du)
 
     @property
-    def memory_modes(self):
-        """ GW memory SPH modes """
-        if self._memory_modes is None:
-            self._memory_modes = {kk: vv * self.amp_rescale \
-                                  for kk, vv in self.h_mem_sxs.items()}
-        return self._memory_modes
+    def calculate_J_E_modes(self):
+        return True if 'J_E' in self.data_params['memory_contributions'] else False
 
-    def _calculate_memory(self):
-        """ Calculation is performed in SXS in dimensionless units """
-        self.h_mem_sxs, self.times_sxs = sxs_memory(self._lal_hlms_du, \
-                                                    self._lal_time_hlms_du)
+    @property
+    def J_E_modes(self):
+        """ Displacement memory modes, dimensionless units """
+        if self._J_E_modes is None:
+            ref_time = time.time()
+            self._J_E_modes = sxs_waveform_to_h_lm_dict(\
+                        sxs.waveforms.memory.J_E(self.sxs_hlms_du), \
+                        self.possible_modes)
+            print('[!] Time for J_E calculation: ', time.time()-ref_time)
+        return self._J_E_modes
+
+    @property
+    def J_E(self):
+        _len = len(self.J_E[(2,2)])
+        J_E_plus, J_E_cross = np.zeros(_len), np.zeros(_len)
+        for (ll, mm) in self.J_E_modes:
+            # To test modes, not a good idea to use because of possible confusion
+            #if ll > self.l_max:
+            #    continue
+            ylm = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], # inclination
+                                                    self.gw_params['phase'], -2, ll, mm)
+            # LAL: Cross-polarization is the *negative* of the imaginary part
+            J_E_plus += np.real(ylm * self.J_E_modes[(ll, mm)].data.data)
+            J_E_cross -= np.imag(ylm * self.J_E_modes[(ll, mm)].data.data)
+
+        return J_E_plus, J_E_cross
+
+    @property
+    def calculate_J_J_modes(self):
+        return True if 'J_J' in self.data_params['memory_contributions'] else False
+
+    @property
+    def J_J_modes(self):
+        """ Flux part of the spin memory modes, dimensionless units """
+        if self._J_J_modes is None:
+            ref_time = time.time()
+            self._J_J_modes = sxs_waveform_to_h_lm_dict(\
+                        sxs.waveforms.memory.J_J(self.sxs_hlms_du), \
+                        self.possible_modes)
+            print('[!] Time for J_J calculation: ', time.time()-ref_time)
+        return self._J_J_modes
 
     @property
     def _lal_time_hlms_du(self):
@@ -380,6 +524,64 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
         """ In dimensionless units (du) """
         return {kk: vv.data.data / self.amp_rescale \
                 for kk, vv in self._lal_hlms.items()}
+
+    @property
+    def max_ll_lal_hlms(self):
+        return max(self._lal_hlms.keys())[0]
+
+    @property
+    def min_ll_lal_hlms(self):
+        return min(self._lal_hlms.keys())[0]
+
+    @property
+    def possible_modes(self):
+        """ All possible SPH modes based on l_max found in LAL output """
+        return [(ll, mm) for ll in range(2, self.max_ll_lal_hlms+1) for mm in range(-ll,ll+1)]
+
+    def _add_missing_lms_in_lal_hlms(self):
+        _lm = (2,2)
+        for (ll,mm) in self.possible_modes:
+            if (ll,mm) not in self._lal_hlms.keys():
+                _temp_lal_hlms_ll_mm = lal.CreateCOMPLEX16TimeSeries(
+                                          str((ll,mm))+' mode',
+                                          self._lal_hlms[_lm].epoch,
+                                          self._lal_hlms[_lm].f0,
+                                          self._lal_hlms[_lm].deltaT,
+                                          self._lal_hlms[_lm].sampleUnits,
+                                          self._lal_hlms[_lm].data.length)
+                if (ll,-mm) in self._lal_hlms.keys() and mm<0:
+                    # Faking negative modes
+                    _temp_lal_hlms_ll_mm.data.data = (-1)**(ll) * np.conjugate(self._lal_hlms[(ll,-mm)].data.data)
+                else:
+                    _temp_lal_hlms_ll_mm.data.data = np.zeros( self._lal_hlms[_lm].data.length )
+                self._lal_hlms[(ll,mm)] = _temp_lal_hlms_ll_mm
+
+    @property
+    def sxs_hlms_du(self):
+        """ Strain SPH modes converted to SXS format. In dimensionless units (du), all possible modes. """
+        if self._sxs_hlms_du is None:
+            out = []
+            for (ll,mm) in self.possible_modes:
+                if (ll,mm) in self._lal_hlms.keys():
+                    out.append(self._lal_hlms[(ll,mm)].data.data / \
+                               self.amp_rescale)
+                else:
+                    raise ValueError('This should not happen, all cases are handled before in _add_missing_lms_in_lal_hlms')
+                #elif (ll,-mm) in self._lal_hlms.keys() and mm<0:
+                #    # Faking negative modes
+                #    out.append((-1)**(ll) * np.conjugate(\
+                #                            self._lal_hlms[(ll,mm)].data.data / \
+                #                            self.amp_rescale))
+                #else:
+                #    out.append( np.zeros(self._lal_hlms[(2,2)].data.length) )
+
+            self._sxs_hlms_du =  sxs.waveforms.WaveformModes(np.array(out).T, 
+                                               time=self._lal_time_hlms_du, 
+                                               modes_axis=1, time_axis=0, 
+                                               ell_min=self.min_ll_lal_hlms, 
+                                               ell_max=self.max_ll_lal_hlms)
+            self._sxs_hlms_du._metadata['spin_weight'] = -2
+        return self._sxs_hlms_du
 
 def nrsur_memestr(waveform, frequencyvector, mass_1, mass_2, luminosity_distance, redshift, theta_jn, phase, geocent_time,
            a_1=0, tilt_1=0, phi_12=0, a_2=0, tilt_2=0, phi_jl=0, lambda_1=0, lambda_2=0, **kwargs):
@@ -575,7 +777,7 @@ def nrsur_caller(waveform, frequencyvector, mass_1, mass_2, luminosity_distance,
             # https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c#L2895
             f_nyquist = f_max
             if int(np.log2(f_max/delta_f)) == np.log2(f_max/delta_f):
-                logging.warning('f_max/deltaF is not a power of two: changing f_max.')
+                #logging.warning('f_max/deltaF is not a power of two: changing f_max.')
                 f_nyquist = 2**(np.floor(np.log2(f_nyquist/delta_f))-np.log2(1/delta_f))
                 if f_max != f_nyquist:
                     raise ValueError('f_nyquist should be equal to f_max')

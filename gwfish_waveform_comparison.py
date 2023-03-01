@@ -47,6 +47,7 @@ duty_cycle = False                  # whether to consider the duty cycle of dete
 
 #fisher_parameters = ['ra', 'dec', 'psi', 'theta_jn', 'luminosity_distance', 'mass_1', 'mass_2', 'geocent_time', 'phase']
 fisher_parameters = ['ra', 'dec', 'psi', 'theta_jn', 'luminosity_distance', 'mass_1', 'mass_2']
+#fisher_parameters = ['ra', 'dec', 'psi', 'theta_jn', 'luminosity_distance', 'mass_1', 'mass_2', 'a_1', 'a_2']
 #fisher_parameters = ['ra', 'dec', 'psi', 'luminosity_distance'] # Parameters that worked initially for time-domain derivatives
 #fisher_parameters = ['ra', 'dec', 'psi', 'theta_jn', 'luminosity_distance', 'mass_chirp', 'mass_ratio']
 #fisher_parameters = ['luminosity_distance','ra','dec']
@@ -57,15 +58,17 @@ else:
     networks_ids = json.loads(networks)
 
 parameters = pd.read_hdf(pop_file)
-#parameters.mass_1 = 30.
-#parameters.mass_2 = 29.9999 #26.
+parameters.mass_1 = 30.
+parameters.mass_2 = 29.9999 #26.
 #parameters.ra = 0.0
 #parameters.dec = 0.0
-#parameters.theta_jn = np.pi/2 # 0.01
+parameters.theta_jn = np.pi/4 # np.pi/2 # 0.01
 parameters.geocent_time = 0.0
 #parameters.psi = 0.
 logging.warning('Hard-setting GW phase to pi/2, to avoid discrepancies between TD and SPH waveforms. Phase is not incorporated in TD waveforms, can be fixed in the future.')
 parameters.phase = np.pi/2 # TD waveforms are without phase, whereas phase is included for SPH waveforms. This hardcoding makes SPH and TD waveforms consistent
+#parameters['a_1'] = np.repeat(0.5, len(parameters))
+#parameters['a_2'] = np.repeat(0.5, len(parameters))
 
 #parameters.luminosity_distance = 3000
 
@@ -118,10 +121,11 @@ np.random.seed(0)
 #waveform_class = [gw.waveforms.LALFD_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gw.waveforms.LALTD_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gu.LALTD_SPH_Waveform, gw.waveforms.LALTD_Waveform]
-#waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform, gu.LALTD_SPH_Waveform]
+waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALFD_Waveform, gw.waveforms.LALFD_Waveform]
 #waveform_class = [gw.waveforms.LALTD_Waveform, gu.LALTD_SPH_Waveform, gu.LALTD_SPH_Memory]
-waveform_class = [gu.LALTD_SPH_Memory, gu.LALTD_SPH_Waveform, gw.waveforms.LALTD_Waveform]
+#waveform_class = [gu.LALTD_SPH_Memory, gu.LALTD_SPH_Waveform, gw.waveforms.LALTD_Waveform]
+#waveform_class = [gu.LALTD_SPH_Waveform, gu.LALTD_SPH_Memory, gw.waveforms.LALTD_Waveform]
 #waveform_class = [gu.LALTD_SPH_Waveform, gu.LALTD_SPH_Memory]
 #waveform_class = [gw.waveforms.IMRPhenomD, gw.waveforms.LALFD_Waveform]
 
@@ -146,10 +150,13 @@ for wm, wc, co, ls in zip(waveform_models, waveform_class, colors, linestyles):
         #waves[wm], t_of_f, frequencyvector
 
         data_params = {
-                          'frequencyvector': network[new_key].detectors[d].frequencyvector, 
+                          'frequencyvector': network[new_key].detectors[d].frequencyvector,
+                          #'frequency_mask': frequency_mask,
+                          'memory_contributions': 'J_E, J_J', # J_E, J_J
                           #'f_ref': 50.
                       }
         waveform_obj = wc(wm, parameter_values, data_params)
+        waveform_objects[new_key] = waveform_obj
         waves[new_key] = waveform_obj()
         t_of_f = waveform_obj.t_of_f
 
@@ -166,7 +173,7 @@ for wm, wc, co, ls in zip(waveform_models, waveform_class, colors, linestyles):
 
         if calculate_errors:
             network[new_key].detectors[d].fisher_matrix[kk, :, :] = \
-                gw.fishermatrix.FisherMatrix(wm, parameter_values, fisher_parameters, network[new_key].detectors[d], waveform_class=wc).fm
+                gw.fishermatrix.FisherMatrix(waveform_obj, parameter_values, fisher_parameters, network[new_key].detectors[d]).fm
 
             errors[new_key], _ = gw.fishermatrix.invertSVD(network[new_key].detectors[d].fisher_matrix[kk, :, :])
 
@@ -178,9 +185,9 @@ for wm, wc, co, ls in zip(waveform_models, waveform_class, colors, linestyles):
         axs[1,0].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx:'+new_key, color=co, linestyle=ls)
         axs[1,0].set_xlim([-0.01,0.01])
         axs[0,1].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+:'+new_key, color=co, linestyle=ls)
-        axs[0,1].set_xlim([-10,-1])
+        #axs[0,1].set_xlim([-10,-1])
         axs[1,1].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx:'+new_key, color=co, linestyle=ls)
-        axs[1,1].set_xlim([-10,-1])
+        axs[1,1].set_xlim([waveform_obj.lal_time_ht_cross[0],waveform_obj.lal_time_ht_cross[0]+100])
     # Frequency-domain
     axs[0,2].loglog(network[new_key].detectors[d].frequencyvector, waves[new_key][:,0], label='h+:'+new_key, color=co, linestyle=ls)
     axs[0,2].set_xlim([f_start + 10,f_start + 20])
@@ -229,7 +236,6 @@ if calculate_errors:
     plt.savefig('../out_gwmem_2022/w_err.png')
     plt.close()
 
-
     #chain_nrsur = np.random.multivariate_normal(np.array([parameter_values[key] for key in fisher_parameters]), errors[other_waveform],size=10000)
     #chain_xphm = np.random.multivariate_normal(np.array([parameter_values[key] for key in fisher_parameters]), errors[ref_model],size=10000)
     #cc = ChainConsumer()
@@ -245,6 +251,40 @@ if calculate_errors:
 #plt.tight_layout()
 #plt.savefig('../out_gwmem_2022/waveform_err_comparison.png')
 #plt.close()
+
+if np.any(['Memory' in kk for kk in waveform_objects.keys()]):
+    fig, axs = plt.subplots(2,2, figsize=(20, 10), dpi=80)
+    for wok, wo in waveform_objects.items():
+        if 'Memory' in wok:
+            axs[0,0].plot(wo.lal_time_ht_plus, np.real(wo.J_J_modes[(3,0)]), label='SpinMem JJ (3,0) RE:'+wok)
+            axs[0,1].plot(wo.lal_time_ht_plus, np.real(wo.J_E_modes[(2,0)]), label='DispMem JE (2,0) RE:'+wok)
+            axs[1,0].plot(wo.lal_time_ht_plus, np.imag(wo.J_J_modes[(3,0)]), label='SpinMem JJ (3,0) IM:'+wok)
+            axs[1,1].plot(wo.lal_time_ht_plus, np.imag(wo.J_E_modes[(2,0)]), label='DispMem JE (2,0) IM:'+wok) 
+    axs[0,0].legend()
+    axs[0,1].legend()
+    axs[1,0].legend()
+    axs[1,1].legend()
+    #fig.legend()
+    plt.tight_layout()
+    plt.savefig('../out_gwmem_2022/w_mem.png')
+    plt.close()
+
+    fig, axs = plt.subplots(2,2, figsize=(20, 20), dpi=80)
+    for wok, wo in waveform_objects.items():
+        if 'Memory' in wok:
+            for (ll,mm) in wo.J_J_modes:
+                axs[0,0].plot(wo.lal_time_ht_plus, np.real(wo.J_J_modes[(ll,mm)]), label='J_J RE '+str((ll,mm))+' '+wok)
+                axs[0,1].plot(wo.lal_time_ht_plus, np.imag(wo.J_J_modes[(ll,mm)]), label='J_J IM '+str((ll,mm))+' '+wok)
+                axs[1,0].plot(wo.lal_time_ht_plus, np.real(wo.J_E_modes[(ll,mm)]), label='J_E RE '+str((ll,mm))+' '+wok)
+                axs[1,1].plot(wo.lal_time_ht_plus, np.imag(wo.J_E_modes[(ll,mm)]), label='J_E IM '+str((ll,mm))+' '+wok)
+    axs[0,0].legend()
+    axs[0,1].legend()
+    axs[1,0].legend()
+    axs[1,1].legend()
+    #fig.legend()
+    plt.tight_layout()
+    plt.savefig('../out_gwmem_2022/w_mem_modes.png')
+    plt.close()
 
 import ipdb; ipdb.set_trace()
 
