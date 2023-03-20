@@ -141,6 +141,33 @@ def h_lm_dict_to_sxs_waveform(h_lm, times, mem_additional_ell=0):
   
     return h_test
 
+# FFT
+from scipy.signal.windows import tukey
+
+def apply_window(waveform, times, alpha=0.2):
+    alpha = get_alpha(kwargs, times)
+    window = tukey(M=len(times), alpha=alpha)
+    for mode in waveform.keys():
+        waveform[mode] *= window
+    return waveform
+
+def fft(yy, dx, x_start, x_end, roll_off = 0.2):
+    """
+    Perform FFT to convert the data from time domain to frequency domain. 
+    Roll-off is specified for the Tukey window in [s].
+    """
+    alpha = 2 * roll_off / (x_end - x_start)
+    window = tukey(len(yy), alpha=alpha)
+    yy_tilde = np.fft.rfft(yy * window)
+    yy_tilde /= 1/dx
+    ff = np.linspace(0, (1/dx) / 2, len(yy_tilde))
+    # Future: here, one can check if frequency resolution and minimum frequency requested are
+    # lower than waveform time span. Resolution freq: warning. Minimum freq: ValueError.
+    return yy_tilde, ff, window
+
+def ifft(yy_tilde, df):
+    return np.fft.ifft(yy_tilde) * df
+
 # For conversion to/from dimensionless units
 def amp_rescale_coeff(dist, m_tot):
     """
@@ -163,6 +190,7 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
     """
     def __init__(self, name, gw_params, data_params):
         self.l_max = None
+        self._time_domain_f_min = None
         super(LALTD_SPH_Waveform, self).__init__(name, gw_params, data_params)
         self._lal_hf_plus = None
         self._lal_hf_cross = None
@@ -193,7 +221,14 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
         why f_min that we choose may be different from this required f_min for 
         time-domain data FFT.
         """
-        return 3.
+        if self._time_domain_f_min is None:
+            if 'time_domain_f_min' in self.data_params:
+                self._time_domain_f_min = self.data_params['time_domain_f_min']
+            else:
+                self._time_domain_f_min = 3
+                logging.warning('Setting l_max to {}'.format(\
+                                self._time_domain_f_min))
+        return self._time_domain_f_min
 
     @property
     def _lal_mass_1(self):
@@ -343,7 +378,7 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
         self._td_strain_from_sph_modes()
         self._waveform_postprocessing()
 
-    def _taper(self):
+    def _taper_lal(self):
         """
         Data conditioning: option 1, that might change fRef.
         This is based on SimInspiralTDfromTD.
@@ -362,34 +397,64 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
                 (self._lal_mass_1 + self._lal_mass_2) * \
                 lal.MTSUN_SI / lal.MSUN_SI)
 
+        # Window
+        #self._window_p = lal.CreateREAL8TimeSeries(
+        #        'window_htp',
+        #        self._lal_ht_plus.epoch,
+        #        self._lal_ht_plus.f0,
+        #        self._lal_ht_plus.deltaT,
+        #        self._lal_ht_plus.sampleUnits,
+        #        self._lal_ht_plus.data.length
+        #)
+        ##self._window_p.data.data = np.ones(self._window_p.data.length)
+        #self._window_p.data.data = self._lal_ht_plus.data.data
+        #self._window_c = lal.CreateREAL8TimeSeries(
+        #        'window_htp',
+        #        self._lal_ht_cross.epoch,
+        #        self._lal_ht_cross.f0,
+        #        self._lal_ht_cross.deltaT,
+        #        self._lal_ht_cross.sampleUnits,
+        #        self._lal_ht_cross.data.length
+        #)
+        ##self._window_c.data.data = np.ones(self._window_c.data.length)
+        #self._window_c.data.data = self._lal_ht_cross.data.data
+        # Saving window function variable to correct for its effect later
+        #self._window_p = copy.copy(self._lal_ht_plus)
+        #self._window_p.data.data = np.ones(self._lal_ht_plus.data.length)
+        #self._window_c = copy.copy(self._lal_ht_cross)
+        #self._window_c.data.data = np.ones(self._lal_ht_cross.data.length)
+
         # Calling data conditioning
         lalsim.SimInspiralTDConditionStage1(self._lal_ht_plus, self._lal_ht_cross, extra_time_fraction * tchirp + textra, self.time_domain_f_min)
         lalsim.SimInspiralTDConditionStage2(self._lal_ht_plus, self._lal_ht_cross, self.f_min, fisco)
 
     def _ht_postproccessing_SimInspiralCTDM(self):
-        self._taper()
+        self._taper_lal()
         self._ht_postproccessing_SimInspiralTD()
 
 
 class LALTD_SPH_Memory(LALTD_SPH_Waveform):
     def __init__(self, name, gw_params, data_params):
         self.l_max = None
+        self._time_domain_f_min = None
         super(LALTD_SPH_Waveform, self).__init__(name, gw_params, data_params)
         self._sxs_hlms_du = None
         self._J_J_modes = None
         self._J_E_modes = None
+        self._td_memory = 0.
+        self._fd_memory = 0.
 
     def update_gw_params(self, new_gw_params):
-        self.gw_params.update(new_gw_params)
-        self._frequency_domain_strain = None
-        self._time_domain_strain = None
-        # Specific to LALTD_SPH_Memory (this class)
-        #self._J_J_modes = None
-        #self._J_E_modes = None
-        # Specific to LALFD_Waveform
+        self._update_gw_params_common(new_gw_params)
+        # Specific to LALFD_Waveform and LALTD_Waveform
         self._init_lambda()
         self._init_lal_gw_parameters()
         self._setup_lal_caller_args()
+        # Specific to LALTD_SPH_Memory (this class)
+        self._J_J_modes = None
+        self._J_E_modes = None
+        self._td_memory = 0.
+        self._fd_memory = 0.
 
     def calculate_time_domain_strain(self):
         self.calculate_time_domain_sph_modes()
@@ -421,7 +486,7 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
 
     @property
     def td_memory(self):
-        return None
+        return self._td_memory
 
     @property
     def fd_memory(self):
@@ -436,10 +501,12 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
     def _add_memory(self):
         if self.calculate_J_J_modes:
             for lm in self.possible_modes:
-                self._lal_hlms[lm].data.data += self.J_J_modes[lm] * self.amp_rescale
+                self._td_memory += self.J_J_modes[lm] * self.amp_rescale * self.gw_params['J_J']
+                self._lal_hlms[lm].data.data += self.J_J_modes[lm] * self.amp_rescale * self.gw_params['J_J']
         if self.calculate_J_E_modes:
             for lm in self.possible_modes:
-                self._lal_hlms[lm].data.data += self.J_E_modes[lm] * self.amp_rescale
+                self._td_memory += self.J_E_modes[lm] * self.amp_rescale * self.gw_params['J_E']
+                self._lal_hlms[lm].data.data += self.J_E_modes[lm] * self.amp_rescale * self.gw_params['J_E']
 
         ## Old way, based on gwtools.sxs_memory:
         ##self.new_modes = 0

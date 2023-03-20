@@ -8,7 +8,7 @@ ET:
             detector_class:   earthDelta
             plotrange:        3, 1000, 1e-25, 1e-20
             fmin:             10.
-            fmax:             2048.
+            fmax:             1024.
             spacing:          linear
             df:               1./128.
             npoints:          5000
