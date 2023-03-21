@@ -2,6 +2,8 @@
 
 ## Setting up the environment
 
+### On a local computer
+
 Please follow these steps. Create a new conda virtual environment like this:
 ```
 conda create -n gwmem_sxs -y -c conda-forge python=3.9
@@ -42,3 +44,7 @@ Limitations:
 Sometimes the ipython kernel will not see modules, and needs to be reinstalled: `jupyter kernelspec uninstall gwmem_sxs`.
 
 To delete the environment (after it is deactivated): `conda env remove -n gwmem_sxs`
+
+### On a cluster
+
+It is best to load dependencies from the container. I created a file `gwmem_2022_20230321.sif`.
