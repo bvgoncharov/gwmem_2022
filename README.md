@@ -48,3 +48,7 @@ To delete the environment (after it is deactivated): `conda env remove -n gwmem_
 ### On a cluster
 
 It is best to load dependencies from the container. I created a file `gwmem_2022_20230321.sif`.
+
+To browsse image:
+
+`singularity shell --bind "/fred/oz031/mem/gwmem_2022_container/image_content/:$HOME" EPTA_ENTERPRISE.sif`
