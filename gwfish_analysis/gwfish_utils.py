@@ -20,7 +20,7 @@ try:
     from scipy.signal.windows import tukey
     from scipy import interpolate
     #sur = gwsurrogate.LoadSurrogate('NRSur7dq4')
-    sur = gwsurrogate.LoadSurrogate('NRHybSur3dq8')
+    #sur = gwsurrogate.LoadSurrogate('/home/bgonchar/gwsurrogate_downloads/NRHybSur3dq8.h5')
 
     import copy # only temporary
 except ModuleNotFoundError as err_gwsur:
