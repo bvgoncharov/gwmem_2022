@@ -1,7 +1,10 @@
+import os
 import copy
 import logging
+import optparse
 
 import numpy as np
+import pandas as pd
 
 import lal
 import lalsimulation as lalsim
@@ -29,53 +32,118 @@ except ModuleNotFoundError as err_gwsur:
 # FOR DEBUGGING
 from matplotlib import pyplot as plt
 
-#def hphc_amplitudes(waveform, parameters, frequencyvector, time_domain=False, sph_modes = False, plot=None):
-#    parameters = parameters.copy()
-#
-#    if waveform == 'gwfish_TaylorF2':
-#        hphc = wf.TaylorF2(parameters, frequencyvector, plot=plot)
-#    elif waveform == 'gwfish_IMRPhenomD':
-#        hphc = wf.IMRPhenomD(parameters, frequencyvector, plot=plot)
-#    elif waveform[0:7] == 'lalsim_':
-#        if time_domain:
-#            data_params = {'frequencyvector': frequencyvector}
-#            if sph_modes:
-#                waveform_obj = LALTD_SPH_Waveform(waveform[7:], parameters, data_params)
-#            else:
-#                waveform_obj = wf.LALTD_Waveform(waveform[7:], parameters, data_params)
-#            #waveform_obj.calculate_sph_modes()
-#
-#            hphc = waveform_obj()
-#            #hp_lal = waveform_obj._lal_ht_plus
-#            #hc_lal = waveform_obj._lal_ht_cross
-#        else:
-#            data_params = {'frequencyvector': frequencyvector}
-#            waveform_obj = wf.LALFD_Waveform(waveform[7:], parameters, data_params)
-#            hphc = waveform_obj()
-#    elif waveform[0:6] == 'nrsur_':
-#        hphc, frequencyvector = nrsur_caller(waveform[6:], frequencyvector, **parameters)
-#    elif waveform[0:6] == 'memes_':
-#        hphc, frequencyvector = nrsur_memestr(waveform[6:], frequencyvector, **parameters)
-#    else:
-#        waveform_error = '{} is not a valid waveform. '.format(str(waveform)) + \
-#                         'Valid options are gwfish_TaylorF2, gwfish_IMRPhenomD, lalsim_XXX.'
-#        raise ValueError(waveform_error)
-#
-#    if time_domain and not waveform[0:6] == 'nrsur_':
-#        # Here it is not really t_of_f, it is just a time vector
-#        t_of_f = np.arange(0,hphc.shape[0]*waveform_obj.delta_t,waveform_obj.delta_t)
-#        t_of_f = np.expand_dims(t_of_f, axis=1)
-#    else:
-#        t_of_f = wf.t_of_f_PN(parameters, frequencyvector)
-#
-#        if fmax := parameters.get('max_frequency', None):
-#            for i in range(2):
-#                hphc[:, i] = np.where(frequencyvector[:, 0] <= fmax, hphc[:, i], 0j)
-#
-#    if not waveform[0:6] == 'nrsur_' and len(frequencyvector) != len(waveform_obj.frequencyvector):
-#        frequencyvector = np.expand_dims(waveform_obj.frequencyvector,axis=1)
-#
-#    return hphc, t_of_f, frequencyvector
+# For pipeline
+
+def parse_commandline():
+    """
+    Parse the command-line options.
+    """
+    parser = optparse.OptionParser()
+
+    parser.add_option("-i", "--inj", help="Injection pack",  default=0, type=int)
+    parser.add_option("-n", "--num", help="Number of injections in a pack",
+                      default=1, type=int)
+    parser.add_option("-f", "--injfile", help="Injection/population file",
+                      default=None, type=str)
+    parser.add_option("-o", "--outdir", help="Output directory", default='./',
+                      type=str)
+    parser.add_option("-l", "--label", help="Label for output files", default='_',
+                      type=str)
+    parser.add_option("-w", "--waveform", help="Waveform name",
+                      default='NRHybSur3dq8', type=str)
+    parser.add_option("-W", "--waveform_class", help="Waveform class",
+                      default='gw.waveforms.LALFD_Waveform', type=str)
+    parser.add_option("-d", "--det", help="Detectors", default='ET',
+                      type=str)
+    #parser.add_option("-x", "--networks", help="Network IDs",
+    #                  default='[[0]]', type=str)
+    parser.add_option("-c", "--config", help="Detector configuration",
+                      default='./gwfish_detectors.yaml', type=str)
+    parser.add_option("-p", "--fisher_pars", help="Fisher parameters",
+                      default='mass_1,mass2', type=str)
+    parser.add_option("-r", "--f_ref", help="Reference frequency",  default=20.,
+                      type=float)
+    parser.add_option("-m", "--td_fmin", help="Time-domain f_min",  default=3.,
+                      type=float)
+    parser.add_option("-M", "--mem_sim", help="Memory terms to include",
+                      default='J_E, J_J', type=str)
+    parser.add_option("-e", "--j_e",
+                      help="J_E multiplicator, disp. memory (between 0 and 1)",
+                      default=0., type=float)
+    parser.add_option("-j", "--j_j",
+                      help="J_J multiplicator, spin memory (between 0 and 1)",
+                      default=0., type=float)
+
+    opts, args = parser.parse_args()
+
+    return opts
+
+def output_names(opts):
+    popdir = os.path.basename(opts.injfile).split('.')[0]
+    totaldir = opts.outdir + popdir + '/'
+    namebase = opts.label+'_'+opts.waveform+'_'+opts.waveform_class+\
+               '_'+str(opts.td_fmin)+'_'+str(opts.f_ref)
+    return popdir, totaldir, namebase
+
+# For model selection and analysis
+
+def conditioned_gaussian(sigma, mu, mu_key, mu_value):
+    """
+    Calculate a slice of a multivariate Gaussian distribution by
+    fixing its position along one dimension at any value (not
+    necessarily the mean value along this dimension).
+
+    Reference: https://en.wikipedia.org/wiki/Schur_complement
+
+    Inputut values are pandas DataFrame.
+
+    Returns new sigma and mu.
+    """
+    schurA = sigma.loc[sigma.index != mu_key, sigma.columns != mu_key]
+    schurB = sigma.loc[sigma.index != mu_key, sigma.columns == mu_key]
+    schurC = sigma.loc[sigma.index == mu_key, sigma.columns != mu_key]
+    schurD = sigma.loc[sigma.index == mu_key, sigma.columns == mu_key]
+
+    newcov = schurA - schurB @ schurD**(-1) @ schurC
+
+    newmu = mu.loc[mu.index != mu_key] + schurB @ schurD**(-1) @ \
+            (mu_value - mu.loc[mu.index == mu_key])
+
+    return newcov, newmu
+
+def log_likelihood_ratio(inv_cov, offset):
+    loglr = -0.5 * offset.transpose() @ inv_cov @ offset
+    return loglr[0][0]
+
+def log_z(covm, log_l_max):
+    n_dim = len(covm.index)
+    return n_dim / 2 * np.log(2*np.pi) + 0.5 * np.log(np.linalg.det(covm)) + log_l_max
+
+def log_z_alternative_model(parameter, value, cov, mean, invcov=None):
+    """
+    Log evidence for an alternative model when parameter is fixed at value.
+    For the likelihood described by mean (true values, maximum-likelihood) and cov.
+
+    The result is (log_z - log_l_true), where log_l_true is the maximum
+    likelihood value for the correct model. However, when finding log Bayes
+    factor relative to the true model, log_l_true is cancelled out.
+
+    Input:
+    mean and cov: pandas.DataFrame
+    parameter: str
+    value: float
+    """
+    newcov, newmu = conditioned_gaussian(cov, mean, parameter, value)
+    newmu_extended = pd.concat((newmu, pd.DataFrame([value],index=[parameter])))
+    offset = mean - newmu_extended
+    loglr = log_likelihood_ratio(invcov, offset)
+    log_z_new = log_z(newcov, loglr)
+    return log_z_new, newcov, newmu
+
+# For waveforms
+
+def m_chirp_from_component_m(m1,m2):
+    return (m1*m2)**(3/5) / (m1+m2)**(1/5)
 
 def sxs_waveform_to_h_lm_dict(sxs_waveform, all_possible_modes):
     return {(ll, mm): np.array( sxs_waveform[:,sxs_waveform.index(ll,mm)] ) \
@@ -183,6 +251,8 @@ def time_rescale_coeff(m_tot):
     in DU to/from MKS units.
     """
     return gwtools.Msuninsec * m_tot
+
+# Custom waveform classes
 
 class LALTD_SPH_Waveform(wf.LALTD_Waveform):
     """
