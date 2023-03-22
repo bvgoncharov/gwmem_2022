@@ -47,4 +47,14 @@ To delete the environment (after it is deactivated): `conda env remove -n gwmem_
 
 ### On a cluster
 
-It is best to load dependencies from the container. I created a file `gwmem_2022_20230321.sif`.
+It is best to load dependencies from the container. I created a file `gwmem_2022_20230321.sif`. To browse image: `singularity shell --bind "/fred/oz031/mem/gwmem_2022_container/image_content/:$HOME" gwmem_2022_20230321_3.sif`
+
+In addition, the following is necessary when inside the container:
+```
+pip install ChainConsumer --user
+git clone git@github.com:bvgoncharov/GWFish.git
+cd GWFish
+git checkout development_bg
+python -m pip install --user .
+```
+Note, `python setup.py install` did not work for me for GWFish, the package was visible but not its modules.
