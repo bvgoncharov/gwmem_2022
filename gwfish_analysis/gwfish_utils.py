@@ -22,12 +22,15 @@ try:
     import gwsurrogate
     from scipy.signal.windows import tukey
     from scipy import interpolate
-    #sur = gwsurrogate.LoadSurrogate('NRSur7dq4')
-    #sur = gwsurrogate.LoadSurrogate('/home/bgonchar/gwsurrogate_downloads/NRHybSur3dq8.h5')
+    #env_vars = os.environ
+    #if 'LAL_DATA_PATH' in env_vars:
+    #    sur = gwsurrogate.LoadSurrogate(os.environ['LAL_DATA_PATH']+'NRHybSur3dq8.h5')
+    #else:
+    #    raise ValueError('Please set LAL_DATA_PATH and put surrogate waveform files there.')
 
     import copy # only temporary
-except ModuleNotFoundError as err_gwsur:
-    print('Module gwsurrogate not found. Surrogate waveforms are not available.')
+#except ModuleNotFoundError as err_gwsur:
+#    print('Module gwsurrogate not found. Surrogate waveforms are not available.')
 
 # FOR DEBUGGING
 from matplotlib import pyplot as plt
