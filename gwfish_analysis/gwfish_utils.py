@@ -18,19 +18,18 @@ import sxs
 
 import time
 
-try:
-    import gwsurrogate
-    from scipy.signal.windows import tukey
-    from scipy import interpolate
-    #env_vars = os.environ
-    #if 'LAL_DATA_PATH' in env_vars:
-    #    sur = gwsurrogate.LoadSurrogate(os.environ['LAL_DATA_PATH']+'NRHybSur3dq8.h5')
-    #else:
-    #    raise ValueError('Please set LAL_DATA_PATH and put surrogate waveform files there.')
-
-    import copy # only temporary
-#except ModuleNotFoundError as err_gwsur:
-#    print('Module gwsurrogate not found. Surrogate waveforms are not available.')
+#try:
+#    import gwsurrogate
+#    from scipy.signal.windows import tukey
+#    from scipy import interpolate
+#    #env_vars = os.environ
+#    #if 'LAL_DATA_PATH' in env_vars:
+#    #    sur = gwsurrogate.LoadSurrogate(os.environ['LAL_DATA_PATH']+'NRHybSur3dq8.h5')
+#    #else:
+#    #    raise ValueError('Please set LAL_DATA_PATH and put surrogate waveform files there.')
+#    #import copy # only temporary
+##except ModuleNotFoundError as err_gwsur:
+##    print('Module gwsurrogate not found. Surrogate waveforms are not available.')
 
 # FOR DEBUGGING
 from matplotlib import pyplot as plt
@@ -122,7 +121,7 @@ def log_z(covm, log_l_max):
     n_dim = len(covm.index)
     return n_dim / 2 * np.log(2*np.pi) + 0.5 * np.log(np.linalg.det(covm)) + log_l_max
 
-def log_z_alternative_model(parameter, value, cov, mean, invcov=None):
+def log_z_alternative_model(parameter, value, cov, mean, invcov=None, log_l_max=0.):
     """
     Log evidence for an alternative model when parameter is fixed at value.
     For the likelihood described by mean (true values, maximum-likelihood) and cov.
@@ -135,13 +134,16 @@ def log_z_alternative_model(parameter, value, cov, mean, invcov=None):
     mean and cov: pandas.DataFrame
     parameter: str
     value: float
+    log_l_max: float, assumed zero except when about to fix a parameter the 
+        second time, then it is the value of the original likelihood at 
+        the parameter fixed the first time.
     """
     newcov, newmu = conditioned_gaussian(cov, mean, parameter, value)
     newmu_extended = pd.concat((newmu, pd.DataFrame([value],index=[parameter])))
     offset = mean - newmu_extended
     loglr = log_likelihood_ratio(invcov, offset)
-    log_z_new = log_z(newcov, loglr)
-    return log_z_new, newcov, newmu
+    log_z_new = log_z(newcov, log_l_max + loglr)
+    return log_z_new, newcov, newmu, loglr
 
 # For waveforms
 

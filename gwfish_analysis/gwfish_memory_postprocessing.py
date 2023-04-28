@@ -29,6 +29,7 @@ co = 'blue'
 ls = '-'
 
 no_result = []
+list_logz_dicts = []
 
 for kk in tqdm.tqdm(range(len(parameters))):
   outfile_name = namebase+'_'+str(kk)+'.pkl'
@@ -53,57 +54,57 @@ for kk in tqdm.tqdm(range(len(parameters))):
   network.detectors[0].SNR[kk] = np.sqrt(np.sum(SNRs ** 2))
 
   # Plot waveform
-  waveform_obj = fm_object.derivative.waveform_object
-  f_start, f_end = network.detectors[0].frequencyvector[0], network.detectors[0].frequencyvector[-1]
-  hf = fm_object.derivative.waveform_at_parameters[0]
-  fig, axs = plt.subplots(2,4, figsize=(20, 10), dpi=80)
-  # Time-domain
-  if hasattr(waveform_obj, 'lal_time_ht_plus'):
-    axs[0,0].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+', color=co, linestyle=ls)
-    axs[0,0].set_xlim([-0.01,0.01])
-    axs[1,0].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx', color=co, linestyle=ls)
-    axs[1,0].set_xlim([-0.01,0.01])
-    axs[0,1].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+', color=co, linestyle=ls)
-    #axs[0,1].set_xlim([-10,-1])
-    axs[1,1].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx', color=co, linestyle=ls)
-    axs[1,1].set_xlim([waveform_obj.lal_time_ht_cross[0],waveform_obj.lal_time_ht_cross[0]+100])
-  ## Frequency-domain
-  axs[0,2].loglog(network.detectors[0].frequencyvector, np.real(hf[:,0]), label='Re(h+)', color=co, linestyle=ls)
-  #axs[0,2].set_xlim([f_start + 10,f_start + 20])
-  axs[1,2].loglog(network.detectors[0].frequencyvector, np.real(hf[:,1]), label='Re(hx)', color=co, linestyle=ls)
-  axs[1,2].set_xlim([f_start + 10,f_start + 20])
-  axs[0,3].semilogx(network.detectors[0].frequencyvector, np.angle(hf[:,0] - 1j*hf[:,1]), label='Phase', alpha=0.3, color=co, linestyle=ls) # To be replace by np.angle()
-  #axs[0,3].set_xlim([f_start + 10,f_start + 20])
-  axs[1,3].loglog(network.detectors[0].frequencyvector, np.abs(hf[:,0] - 1j*hf[:,1]), label='Abs', color=co, linestyle=ls) # To be replace by np.angle()
-  axs[0,0].set_xlabel('Time [s]')
-  axs[1,0].set_xlabel('Time [s]')
-  axs[0,1].set_xlabel('Time [s]')
-  axs[1,1].set_xlabel('Time [s]')
-  axs[0,0].set_ylabel('hp')
-  axs[1,0].set_ylabel('hx')
-  axs[0,1].set_ylabel('hp')
-  axs[1,1].set_ylabel('hx')
-  axs[0,2].set_xlabel('Frequency [Hz]')
-  axs[1,2].set_xlabel('Frequency [Hz]')
-  axs[0,3].set_xlabel('Frequency [Hz]')
-  axs[1,3].set_xlabel('Frequency [Hz]')
-  axs[0,2].set_ylabel('hp')
-  axs[1,2].set_ylabel('hx')
-  axs[0,3].set_ylabel('Complex strain phase')
-  axs[1,3].set_ylabel('Complex strain amplitude') 
-  plt.tight_layout()
-  plt.legend()
-  plt.savefig(totaldir+namebase+'_'+str(kk)+'_waveform.png')
-  plt.close()
+  #waveform_obj = fm_object.derivative.waveform_object
+  #f_start, f_end = network.detectors[0].frequencyvector[0], network.detectors[0].frequencyvector[-1]
+  #hf = fm_object.derivative.waveform_at_parameters[0]
+  #fig, axs = plt.subplots(2,4, figsize=(20, 10), dpi=80)
+  ## Time-domain
+  #if hasattr(waveform_obj, 'lal_time_ht_plus'):
+  #  axs[0,0].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+', color=co, linestyle=ls)
+  #  axs[0,0].set_xlim([-0.01,0.01])
+  #  axs[1,0].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx', color=co, linestyle=ls)
+  #  axs[1,0].set_xlim([-0.01,0.01])
+  #  axs[0,1].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+', color=co, linestyle=ls)
+  #  #axs[0,1].set_xlim([-10,-1])
+  #  axs[1,1].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx', color=co, linestyle=ls)
+  #  axs[1,1].set_xlim([waveform_obj.lal_time_ht_cross[0],waveform_obj.lal_time_ht_cross[0]+100])
+  ### Frequency-domain
+  #axs[0,2].loglog(network.detectors[0].frequencyvector, np.real(hf[:,0]), label='Re(h+)', color=co, linestyle=ls)
+  ##axs[0,2].set_xlim([f_start + 10,f_start + 20])
+  #axs[1,2].loglog(network.detectors[0].frequencyvector, np.real(hf[:,1]), label='Re(hx)', color=co, linestyle=ls)
+  #axs[1,2].set_xlim([f_start + 10,f_start + 20])
+  #axs[0,3].semilogx(network.detectors[0].frequencyvector, np.angle(hf[:,0] - 1j*hf[:,1]), label='Phase', alpha=0.3, color=co, linestyle=ls) # To be replace by np.angle()
+  ##axs[0,3].set_xlim([f_start + 10,f_start + 20])
+  #axs[1,3].loglog(network.detectors[0].frequencyvector, np.abs(hf[:,0] - 1j*hf[:,1]), label='Abs', color=co, linestyle=ls) # To be replace by np.angle()
+  #axs[0,0].set_xlabel('Time [s]')
+  #axs[1,0].set_xlabel('Time [s]')
+  #axs[0,1].set_xlabel('Time [s]')
+  #axs[1,1].set_xlabel('Time [s]')
+  #axs[0,0].set_ylabel('hp')
+  #axs[1,0].set_ylabel('hx')
+  #axs[0,1].set_ylabel('hp')
+  #axs[1,1].set_ylabel('hx')
+  #axs[0,2].set_xlabel('Frequency [Hz]')
+  #axs[1,2].set_xlabel('Frequency [Hz]')
+  #axs[0,3].set_xlabel('Frequency [Hz]')
+  #axs[1,3].set_xlabel('Frequency [Hz]')
+  #axs[0,2].set_ylabel('hp')
+  #axs[1,2].set_ylabel('hx')
+  #axs[0,3].set_ylabel('Complex strain phase')
+  #axs[1,3].set_ylabel('Complex strain amplitude') 
+  #plt.tight_layout()
+  #plt.legend()
+  #plt.savefig(totaldir+namebase+'_'+str(kk)+'_waveform.png')
+  #plt.close()
 
-  # Corner plot
-  cc = ChainConsumer()
-  chain_sim = np.random.multivariate_normal(np.array([parameter_values[key] for key in fisher_parameters]), errors, size=10000)
-  cc.add_chain(chain_sim, parameters=fisher_parameters)
-  cc.configure(usetex=False)
-  fig = cc.plotter.plot()
-  plt.savefig(totaldir+namebase+'_'+str(kk)+'_pe.png')
-  plt.close()
+  ## Corner plot
+  #cc = ChainConsumer()
+  #chain_sim = np.random.multivariate_normal(np.array([parameter_values[key] for key in fisher_parameters]), errors, size=10000)
+  #cc.add_chain(chain_sim, parameters=fisher_parameters)
+  #cc.configure(usetex=False)
+  #fig = cc.plotter.plot()
+  #plt.savefig(totaldir+namebase+'_'+str(kk)+'_pe.png')
+  #plt.close()
 
   # Model selection
   # Original model
@@ -112,26 +113,66 @@ for kk in tqdm.tqdm(range(len(parameters))):
   true_values = pd.DataFrame(data=np.array([parameter_values[key] for key in fisher_parameters]), index=fisher_parameters)
   log_z_true = gu.log_z(error_matrix, 0.0)
   # Models where we fix one parameter
-  #alternative_models = [('J_E', opts.j_e), ('J_E', 1 - opts.j_e), ('J_J', opts.j_j), ('J_J', 1 - opts.j_j)]
-  alternative_models = [('mass_1', 35.6), ('mass_1', 35.7), ('mass_2', 30.6), ('mass_2', 30.7)]
+  alternative_models = [('J_E', opts.j_e), ('J_E', 1 - opts.j_e), ('J_J', opts.j_j), ('J_J', 1 - opts.j_j)]
+  #alternative_models = [('mass_1', 35.6), ('mass_1', 35.7), ('mass_2', 30.6), ('mass_2', 30.7)]
   log_zs = {}
   cc = ChainConsumer()
-  cc.add_chain(chain_sim, parameters=fisher_parameters, name='Correct model, J_E '+str(opts.j_e)+', J_J '+str(opts.j_j))
+  #cc.add_chain(chain_sim, parameters=fisher_parameters, name='Correct model, J_E '+str(opts.j_e)+', J_J '+str(opts.j_j))
   for am in alternative_models:
-      log_zs[str(am)], newcov, newmu = gu.log_z_alternative_model(am[0], am[1], error_matrix, true_values, invcov=fisher_matrix)
-      cc.add_chain(np.random.multivariate_normal(newmu.to_numpy()[:,0], newcov,size=10000), parameters=newmu.index.to_list(), name=str(am)+', logBF^true_this='+str(log_z_true - log_zs[str(am)]))
+    log_zs[str(am)], newcov, newmu, loglr = gu.log_z_alternative_model(am[0], am[1], error_matrix, true_values, invcov=fisher_matrix)
+    cc.add_chain(np.random.multivariate_normal(newmu.to_numpy()[:,0], newcov,size=10000), parameters=newmu.index.to_list(), name=str(am)+', logBF^true_this='+str(log_z_true - log_zs[str(am)]))
+    if am[0]=='J_J' and am[1]==opts.j_j:
+      # JJ right, JE wrong
+      extra = ('J_E', 1 - opts.j_e)
+    elif am[0]=='J_E' and am[1]==opts.j_e:
+      # Both terms right
+      extra = ('J_J', opts.j_j)
+    elif am[0]=='J_J' and am[1]==1-opts.j_j:
+      # JJ wrong, JE right
+      extra = ('J_E', opts.j_e)
+    elif am[0]=='J_E' and am[1]==1-opts.j_e:
+      # Both terms wrong
+      extra = ('J_J', 1 - opts.j_j)
+    else:
+      extra = None
+    if extra is not None:
+      newfisher, _ = gw.fishermatrix.invertSVD(newcov)
+      newfisher_matrix = pd.DataFrame(newfisher, columns=newcov.columns, index=newcov.index)
+      log_zs[str(am)+str(extra)], newcov_2, newmu_2, loglr_2 = gu.log_z_alternative_model(extra[0], extra[1], newcov, newmu, invcov=newfisher_matrix, log_l_max=loglr)
+      #cc.add_chain(np.random.multivariate_normal(newmu_2.to_numpy()[:,0], newcov_2,size=10000), parameters=newmu_2.index.to_list(), name=str(am)+str(extra)+', logBF^true_this='+str(log_z_true - log_zs[str(am)+str(extra)]))
+  list_logz_dicts.append(log_zs)
+  # Obsolete part
   # Model where we fix one more parameter
   #extra = ('J_E', 1 - opts.j_e)
-  extra = ('mass_1', 35.6)
-  newfisher, _ = gw.fishermatrix.invertSVD(newcov)
-  newfisher_matrix = pd.DataFrame(newfisher, columns=newcov.columns, index=newcov.index)
-  log_z_2, newcov_2, newmu_2 = gu.log_z_alternative_model(extra[0], extra[1], newcov, newmu, invcov=newfisher_matrix)
-  cc.add_chain(np.random.multivariate_normal(newmu_2.to_numpy()[:,0], newcov_2,size=10000), parameters=newmu_2.index.to_list(), name=str(am)+str(extra)+', logBF^true_this='+str(log_z_true - log_z_2))
-  # Make a plot
-  cc.configure(usetex=False)
-  fig = cc.plotter.plot()
-  plt.savefig(totaldir+namebase+'_'+str(kk)+'_pe_misspec.png')
-  plt.close()
+  #extra = ('mass_1', 35.6)
+  #newfisher, _ = gw.fishermatrix.invertSVD(newcov)
+  #newfisher_matrix = pd.DataFrame(newfisher, columns=newcov.columns, index=newcov.index)
+  #log_z_2, newcov_2, newmu_2 = gu.log_z_alternative_model(extra[0], extra[1], newcov, newmu, invcov=newfisher_matrix)
+  #log_z_3, newcov_3, newmu_3 = gu.log_z_alternative_model(extra[0], extra[1], newcov, newmu, invcov=newfisher_matrix)
+  #cc.add_chain(np.random.multivariate_normal(newmu_2.to_numpy()[:,0], newcov_2,size=10000), parameters=newmu_2.index.to_list(), name=str(am)+str(extra)+', logBF^true_this='+str(log_z_true - log_z_2))
+
+  ## Make a plot
+  #cc.configure(usetex=False)
+  #fig = cc.plotter.plot()
+  #plt.savefig(totaldir+namebase+'_'+str(kk)+'_pe_misspec.png')
+  #plt.close()
 
   # Save key numbers
-  #import ipdb; ipdb.set_trace()
+
+import ipdb; ipdb.set_trace()
+dict_z = pd.DataFrame.from_dict(list_logz_dicts)
+
+je1jj1_ebms_key = [kk for kk in dict_z.keys() if '(\'J_E\', 1.0)' in kk and '(\'J_J\', 1.0)' in kk][0]
+je0jj0_poincare_key = [kk for kk in dict_z.keys() if '(\'J_E\', 0.0)' in kk and '(\'J_J\', 0.0)' in kk][0]
+je1jj0_bms_key = [kk for kk in dict_z.keys() if '(\'J_E\', 1.0)' in kk and '(\'J_J\', 0.0)' in kk][0]
+
+
+ebms_vs_bms = dict_z[je1jj1_ebms_key] - dict_z[je1jj0_bms_key]
+ebms_vs_poincare = dict_z[je1jj1_ebms_key] - dict_z[je0jj0_poincare_key]
+bms_vs_poincare = dict_z[je1jj0_bms_key] - dict_z[je0jj0_poincare_key]
+
+#jj=dict_z['(\'J_J\', 1.0)'] - dict_z['(\'J_J\', 0.0)']
+#je = dict_z['(\'J_E\', 1.0)'] - dict_z['(\'J_E\', 0.0)']
+#jejj = dict_z['(\'J_E\', 1.0)(\'J_J\', 1.0)'] - dict_z['(\'J_J\', 0.0)(\'J_E\', 0.0)']
+
+# Show how log Bayes factor grows as a function of (significant) detections
