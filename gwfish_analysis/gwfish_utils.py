@@ -215,31 +215,31 @@ def h_lm_dict_to_sxs_waveform(h_lm, times, mem_additional_ell=0):
     return h_test
 
 # FFT
-from scipy.signal.windows import tukey
-
-def apply_window(waveform, times, alpha=0.2):
-    alpha = get_alpha(kwargs, times)
-    window = tukey(M=len(times), alpha=alpha)
-    for mode in waveform.keys():
-        waveform[mode] *= window
-    return waveform
-
-def fft(yy, dx, x_start, x_end, roll_off = 0.2):
-    """
-    Perform FFT to convert the data from time domain to frequency domain. 
-    Roll-off is specified for the Tukey window in [s].
-    """
-    alpha = 2 * roll_off / (x_end - x_start)
-    window = tukey(len(yy), alpha=alpha)
-    yy_tilde = np.fft.rfft(yy * window)
-    yy_tilde /= 1/dx
-    ff = np.linspace(0, (1/dx) / 2, len(yy_tilde))
-    # Future: here, one can check if frequency resolution and minimum frequency requested are
-    # lower than waveform time span. Resolution freq: warning. Minimum freq: ValueError.
-    return yy_tilde, ff, window
-
-def ifft(yy_tilde, df):
-    return np.fft.ifft(yy_tilde) * df
+#from scipy.signal.windows import tukey
+#
+#def apply_window(waveform, times, alpha=0.2):
+#    alpha = get_alpha(kwargs, times)
+#    window = tukey(M=len(times), alpha=alpha)
+#    for mode in waveform.keys():
+#        waveform[mode] *= window
+#    return waveform
+#
+#def fft(yy, dx, x_start, x_end, roll_off = 0.2):
+#    """
+#    Perform FFT to convert the data from time domain to frequency domain. 
+#    Roll-off is specified for the Tukey window in [s].
+#    """
+#    alpha = 2 * roll_off / (x_end - x_start)
+#    window = tukey(len(yy), alpha=alpha)
+#    yy_tilde = np.fft.rfft(yy * window)
+#    yy_tilde /= 1/dx
+#    ff = np.linspace(0, (1/dx) / 2, len(yy_tilde))
+#    # Future: here, one can check if frequency resolution and minimum frequency requested are
+#    # lower than waveform time span. Resolution freq: warning. Minimum freq: ValueError.
+#    return yy_tilde, ff, window
+#
+#def ifft(yy_tilde, df):
+#    return np.fft.ifft(yy_tilde) * df
 
 # For conversion to/from dimensionless units
 def amp_rescale_coeff(dist, m_tot):
@@ -357,6 +357,20 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
             #self._waveform_postprocessing = self._ht_postproccessing_SimInspiralTD
             self._lalsim_caller = lalsim.SimInspiralChooseTDModes # general
             #self._lalsim_caller = lalsim.SimInspiralModesTD # no spin!
+
+
+
+            # NEW: for data conditioning
+            extra_time_fraction = 0.1
+            extra_cycles = 3.0
+            textra = extra_cycles / self.f_min
+            tchirp = lalsim.SimInspiralChirpTimeBound(self.f_min, self._lal_mass_1, self._lal_mass_2, self.gw_params['spin_1z'], self.gw_params['spin_2z'])
+            ss = lalsim.SimInspiralFinalBlackHoleSpinBound(self.gw_params['spin_1z'], self.gw_params['spin_2z'])
+            tmerge = lalsim.SimInspiralMergeTimeBound(self._lal_mass_1, self._lal_mass_2) + lalsim.SimInspiralRingdownTimeBound(self._lal_mass_1 + self._lal_mass_2, ss)
+            self.dc_fstart = lalsim.SimInspiralChirpStartFrequencyBound((1.0 + extra_time_fraction) * tchirp + tmerge + textra, self._lal_mass_1, self._lal_mass_2)
+
+
+
             self._lalsim_args = [
                 0, # phiRef, unused parameter
                 self.delta_t,
@@ -364,7 +378,7 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
                 self._lal_mass_2,
                 self.gw_params['spin_1x'], self.gw_params['spin_1y'], self.gw_params['spin_1z'],
                 self.gw_params['spin_2x'], self.gw_params['spin_2y'], self.gw_params['spin_2z'],
-                self.time_domain_f_min,
+                self.dc_fstart, # self.time_domain_f_min, # NEW: replaced fmin for data cond.
                 self.f_ref,
                 self.gw_params['luminosity_distance'] * lal.PC_SI * 1e6,  # in [m]
                 self._params_lal,
@@ -499,14 +513,50 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
         #self._window_c = copy.copy(self._lal_ht_cross)
         #self._window_c.data.data = np.ones(self._lal_ht_cross.data.length)
 
-        # Calling data conditioning
-        lalsim.SimInspiralTDConditionStage1(self._lal_ht_plus, self._lal_ht_cross, extra_time_fraction * tchirp + textra, self.time_domain_f_min)
-        lalsim.SimInspiralTDConditionStage2(self._lal_ht_plus, self._lal_ht_cross, self.f_min, fisco)
+        # Ignoring zeros at the beginning of LAL time series
+        mask_zeros = self._lal_ht_plus.data.data != 0
+        # Tapering beginning of the waveform, several cycles
+        self._lal_ht_plus.data.data[mask_zeros] = taper_1(self._lal_ht_plus.data.data[mask_zeros], self._lal_ht_plus.deltaT, extra_time_fraction * tchirp + textra)
+        self._lal_ht_cross.data.data[mask_zeros] = taper_1(self._lal_ht_cross.data.data[mask_zeros], self._lal_ht_cross.deltaT, extra_time_fraction * tchirp + textra)
+        # Tapering one cycle at f_min at the beginning and one cycle at f_isco
+        # at the end
+        self._lal_ht_plus.data.data[mask_zeros] = taper_2(self._lal_ht_plus.data.data[mask_zeros], self._lal_ht_plus.deltaT, self.time_domain_f_min, fisco)
+        self._lal_ht_cross.data.data[mask_zeros] = taper_2(self._lal_ht_cross.data.data[mask_zeros], self._lal_ht_cross.deltaT, self.time_domain_f_min, fisco)
+
+        # Calling LAL data conditioning (does not work, for some reason)
+        #lalsim.SimInspiralTDConditionStage1(self._lal_ht_plus, self._lal_ht_cross, extra_time_fraction * tchirp + textra, self.time_domain_f_min)
+        #lalsim.SimInspiralTDConditionStage2(self._lal_ht_plus, self._lal_ht_cross, self.time_domain_f_min, fisco)
 
     def _ht_postproccessing_SimInspiralCTDM(self):
         self._taper_lal()
         self._ht_postproccessing_SimInspiralTD()
 
+
+def taper_1(timeseries, delta_t, window_length):
+    """
+    Similar to SimInspiralTDConditionStage1, but without high-pass filtering.
+    """
+    ntaper = round(window_length / delta_t)
+    idx = np.arange(0,len(timeseries),1)
+    window = np.ones(len(timeseries))
+    window[0:ntaper] = 0.5 - 0.5 * np.cos(idx[0:ntaper] * np.pi / ntaper)
+
+    return timeseries * window
+
+def taper_2(timeseries, delta_t, f_min, f_max):
+    """
+    Based on SimInspiralTDConditionStage2.
+    """
+    ntaper_end = round(1.0 / (f_max * delta_t))
+    ntaper_start = round(1.0 / (f_min * delta_t))
+
+    idx = np.arange(0,len(timeseries),1)
+    window = np.ones(len(timeseries))
+
+    window[-1:-1-ntaper_end:-1] = 0.5 - 0.5 * np.cos(idx[0:ntaper_end] * np.pi / ntaper_end)
+    window[0:ntaper_start] = 0.5 - 0.5 * np.cos(idx[0:ntaper_start] * np.pi / ntaper_start)
+
+    return timeseries * window
 
 class LALTD_SPH_Memory(LALTD_SPH_Waveform):
     def __init__(self, name, gw_params, data_params):

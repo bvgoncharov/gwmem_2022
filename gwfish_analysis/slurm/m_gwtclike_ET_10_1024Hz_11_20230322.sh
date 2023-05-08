@@ -2,10 +2,10 @@
 #SBATCH --job-name=m_gwt_11_20230322
 #SBATCH --output=/fred/oz031/mem/gwmem_2022_container/image_content/logs_gwmem_2022/m_gwtclike_ET_10_1024Hz_11_20230322_%A_%a.out
 #SBATCH --ntasks=1
-#SBATCH --time=0-23
+#SBATCH --time=0-3
 #SBATCH --mem-per-cpu=4G
 #SBATCH --tmp=8G
-#SBATCH --array=0-93
+#SBATCH --array=0-0
 
 export OMP_NUM_THREADS=1
 

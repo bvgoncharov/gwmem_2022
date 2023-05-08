@@ -89,12 +89,13 @@ def log_z_alternative_model(parameter, value, cov, mean, invcov=None):
 
 #pop_file='../GWFish/injections/BBH_1e5.hdf5'
 #pop_file='../GWFish/injections/CBC_pop.hdf5'
-pop_file = '/home/bgonchar/pops_gwmem_2022/GWTC-like_population_20230314.hdf5'
+pop_file = '/home/bgonchar/GWFish/injections/CBC_pop.hdf5'
+#pop_file = '/home/bgonchar/pops_gwmem_2022/GWTC-like_population_20230314.hdf5'
 pop_id='BBH'
 detectors_ids=['ET']
 networks='[[0]]'
-config='/home/bgonchar/gwmem_2022/gwfish_analysis/detectors/gwfish_detectors_et_10_1024Hz.yaml'
-
+#config='/home/bgonchar/gwmem_2022/gwfish_analysis/detectors/gwfish_detectors_et_10_1024Hz.yaml'
+config='/home/bgonchar/GWFish/GWFish/detectors.yaml'
 
 threshold_SNR = np.array([0., 9.])  # [min. individual SNR to be included in PE, min. network SNR for detection]
 calculate_errors = True             # whether to calculate Fisher-matrix based PE errors
@@ -126,7 +127,7 @@ parameters = pd.read_hdf(pop_file)
 #parameters.luminosity_distance = 2000.
 #parameters.redshift = 0.36344189
 #parameters.theta_jn = 0.9 * np.pi/2 # np.pi/2 # 0.01
-parameters.geocent_time = 0.0
+#parameters.geocent_time = 0.0
 #parameters.psi = 0.
 #logging.warning('Hard-setting GW phase to pi/2, to avoid discrepancies between TD and SPH waveforms. Phase is not incorporated in TD waveforms, can be fixed in the future.')
 #parameters.phase = np.pi/2 #+ np.pi/12 # TD waveforms are without phase, whereas phase is included for SPH waveforms. This hardcoding makes SPH and TD waveforms consistent
@@ -188,7 +189,8 @@ parameters.geocent_time = 0.0
 #waveform_models = ['IMRPhenomTPHM', 'IMRPhenomTPHM', 'IMRPhenomTPHM']
 #waveform_models = ['IMRPhenomTPHM', 'NRHybSur3dq8', 'SEOBNRv4PHM']
 #waveform_models = ['IMRPhenomXPHM', 'IMRPhenomXPHM', 'IMRPhenomTPHM', 'IMRPhenomTPHM', 'NRHybSur3dq8', 'NRHybSur3dq8']
-waveform_models = ['IMRPhenomXPHM', 'IMRPhenomTPHM', 'NRHybSur3dq8', 'SEOBNRv4PHM']
+#waveform_models = ['IMRPhenomXPHM', 'IMRPhenomTPHM', 'NRHybSur3dq8', 'SEOBNRv4PHM']
+waveform_models = ['IMRPhenomD']
 colors = ['red', 'green', 'blue', 'purple', 'orange', 'brown']
 linestyles = ['-','--',':', '-','--',':']
 network = {}
@@ -198,7 +200,7 @@ np.random.seed(0)
 #time_domain = [False, True]
 #sph_modes = [False, False]
 
-#waveform_class = [gw.waveforms.LALFD_Waveform]
+waveform_class = [gw.waveforms.LALFD_Waveform]
 #waveform_class = [gu.LALTD_SPH_Memory]
 #waveform_class = [gu.LALTD_SPH_Waveform]
 #waveform_class = [gw.waveforms.LALTD_Waveform]
@@ -207,13 +209,13 @@ np.random.seed(0)
 #waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.IMRPhenomD]
 #waveform_class = [gw.waveforms.LALFD_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform]
-#waveform_class = [gw.waveforms.LALFD_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gw.waveforms.LALTD_Waveform, gw.waveforms.LALTD_Waveform]
 #waveform_class = [gw.waveforms.LALTD_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gu.LALTD_SPH_Waveform, gw.waveforms.LALTD_Waveform]
 #waveform_class = [gw.waveforms.LALTD_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gu.LALTD_SPH_Waveform, gu.LALTD_SPH_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform, gu.LALTD_SPH_Waveform]
+#waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform, gw.waveforms.LALTD_Waveform]
 #waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALFD_Waveform, gw.waveforms.LALFD_Waveform]
 #waveform_class = [gw.waveforms.LALFD_Waveform, gu.LALTD_SPH_Waveform, gu.LALTD_SPH_Waveform]
 #waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALFD_Waveform, gw.waveforms.LALFD_Waveform]
@@ -226,10 +228,12 @@ np.random.seed(0)
 #waveform_class = [gu.LALTD_SPH_Waveform, gu.LALTD_SPH_Memory]
 #waveform_class = [gw.waveforms.IMRPhenomD, gw.waveforms.LALFD_Waveform]
 #waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform, gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform, gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform]
-waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform, gw.waveforms.LALTD_Waveform, gw.waveforms.LALTD_Waveform]
+#waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALTD_Waveform, gw.waveforms.LALTD_Waveform, gw.waveforms.LALTD_Waveform]
 
 for kk in tqdm(range(len(parameters))):
     print('Processing CBC population')
+    #if kk<13:
+    #    continue
     waveform_objects = {}
     waves = {}
     errors = {}
@@ -245,12 +249,14 @@ for kk in tqdm(range(len(parameters))):
         parameter_values = parameters.iloc[kk]
     
         networkSNR_sq = 0
-        for d in np.arange(len(network[new_key].detectors)):
-            #original_fv = copy.copy(network[wm].detectors[d].frequencyvector)
+        for dd in np.arange(len(network[new_key].detectors)):
+            #original_fv = copy.copy(network[wm].detectors[dd].frequencyvector)
             #waves[wm], t_of_f, frequencyvector
-    
+
+            network[new_key].detectors[dd].frequency_mask = np.squeeze(network[new_key].detectors[dd].frequencyvector > 0)
+
             data_params = {
-                              'frequencyvector': network[new_key].detectors[d].frequencyvector,
+                              'frequencyvector': network[new_key].detectors[dd].frequencyvector,
                               #'frequency_mask': frequency_mask,
                               #'memory_contributions': 'J_E, J_J', # J_E, J_J
                               'time_domain_f_min': 9.0,
@@ -261,22 +267,22 @@ for kk in tqdm(range(len(parameters))):
             try:
                 waves[new_key] = waveform_obj()
                 t_of_f = waveform_obj.t_of_f
-    
-                #network[wm].detectors[d].frequencyvector = frequencyvector
+                #network[wm].detectors[dd].frequencyvector = frequencyvector
     
                 #print('Processing', wm, '. Mismatch with IMRPhenomXPHM (real, imag): ', mismatch(waves[wm],waves[ref_model]).real, mismatch(waves[wm],waves[ref_model]).imag)
     
-                signal = gw.detection.projection(parameter_values, network[new_key].detectors[d], waves[new_key], t_of_f)
+                signal = gw.detection.projection(parameter_values, network[new_key].detectors[dd], waves[new_key], t_of_f)
                 #if wm == 'nrsur_NRHybSur3dq8':
                 #    import ipdb; ipdb.set_trace()
-                #SNRs = gw.detection.SNR(network[wm].detectors[d], signal, duty_cycle=duty_cycle)
+                #SNRs = gw.detection.SNR(network[wm].detectors[dd], signal, duty_cycle=duty_cycle)
                 #networkSNR_sq += np.sum(SNRs ** 2)
-                #network[wm].detectors[d].SNR[kk] = np.sqrt(np.sum(SNRs ** 2))
+                #network[wm].detectors[dd].SNR[kk] = np.sqrt(np.sum(SNRs ** 2))
     
-                network[new_key].detectors[d].fisher_matrix[kk, :, :] = np.zeros((len(fisher_parameters),len(fisher_parameters)))
+                network[new_key].detectors[dd].fisher_matrix[kk, :, :] = np.zeros((len(fisher_parameters),len(fisher_parameters)))
                 if calculate_errors:
-                    fm_obj = gw.fishermatrix.FisherMatrix(waveform_obj, parameter_values, fisher_parameters, network[new_key].detectors[d])
-                    network[new_key].detectors[d].fisher_matrix[kk, :, :] += fm_obj.fm
+                    fm_obj = gw.fishermatrix.FisherMatrix(waveform_obj, parameter_values, fisher_parameters, network[new_key].detectors[dd])
+
+                    network[new_key].detectors[dd].fisher_matrix[kk, :, :] += fm_obj.fm
                     #fm_obj.derivative.waveform_object._lal_hf_cross = 1.#None
                     #fm_obj.derivative.waveform_object._lal_hf_plus = 1.#None
                     #fm_obj.derivative.waveform_object._params_lal = 1.#None
@@ -284,13 +290,13 @@ for kk in tqdm(range(len(parameters))):
                     #with open('test_pickle.pkl', 'wb') as fobj:
                     #    pickle.dump(fm_obj, fobj)
                     try:
-                        errors[new_key], _ = gw.fishermatrix.invertSVD(network[new_key].detectors[d].fisher_matrix[kk, :, :])
+                        errors[new_key], _ = gw.fishermatrix.invertSVD(network[new_key].detectors[dd].fisher_matrix[kk, :, :])
                     except:
-                        print('inverSVD error, injection, ',kk,', waveform ',new_key,', detector ',d)
+                        print('inverSVD error, injection, ',kk,', waveform ',new_key,', detector ',dd)
             except:
-                print('Waveform evaluation error, injection, ',kk,', waveform ',new_key,', detector ',d)
+                print('Waveform evaluation error, injection, ',kk,', waveform ',new_key,', detector ',dd)
 
-        f_start, f_end = network[new_key].detectors[d].frequencyvector[0], network[new_key].detectors[d].frequencyvector[-1]
+        f_start, f_end = network[new_key].detectors[dd].frequencyvector[0], network[new_key].detectors[dd].frequencyvector[-1]
         # Time-domain
         if hasattr(waveform_obj, 'lal_time_ht_plus'):
             axs[0,0].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+:'+new_key, color=co, linestyle=ls)
@@ -304,13 +310,13 @@ for kk in tqdm(range(len(parameters))):
         # Frequency-domain
         if not new_key in waves:
             continue
-        axs[0,2].loglog(network[new_key].detectors[d].frequencyvector, waves[new_key][:,0], label='h+:'+new_key, color=co, linestyle=ls)
+        axs[0,2].loglog(network[new_key].detectors[dd].frequencyvector, waves[new_key][:,0], label='h+:'+new_key, color=co, linestyle=ls)
         #axs[0,2].set_xlim([f_start + 10,f_start + 20])
-        axs[1,2].loglog(network[new_key].detectors[d].frequencyvector, waves[new_key][:,1], label='hx:'+new_key, color=co, linestyle=ls)
+        axs[1,2].loglog(network[new_key].detectors[dd].frequencyvector, waves[new_key][:,1], label='hx:'+new_key, color=co, linestyle=ls)
         axs[1,2].set_xlim([f_start + 10,f_start + 20])
-        axs[0,3].semilogx(network[new_key].detectors[d].frequencyvector, np.angle(waves[new_key][:,0] - 1j*waves[new_key][:,1]), label='Phase:'+new_key, alpha=0.3, color=co, linestyle=ls) # To be replace by np.angle()
+        axs[0,3].semilogx(network[new_key].detectors[dd].frequencyvector, np.angle(waves[new_key][:,0] - 1j*waves[new_key][:,1]), label='Phase:'+new_key, alpha=0.3, color=co, linestyle=ls) # To be replace by np.angle()
         #axs[0,3].set_xlim([f_start + 10,f_start + 20])
-        axs[1,3].loglog(network[new_key].detectors[d].frequencyvector, np.abs(waves[new_key][:,0] - 1j*waves[new_key][:,1]), label='Abs:'+new_key, color=co, linestyle=ls) # To be replace by np.angle()
+        axs[1,3].loglog(network[new_key].detectors[dd].frequencyvector, np.abs(waves[new_key][:,0] - 1j*waves[new_key][:,1]), label='Abs:'+new_key, color=co, linestyle=ls) # To be replace by np.angle()
     
         network[new_key].SNR[kk] = np.sqrt(networkSNR_sq)
         #print('Network SNR: ', network[new_key].SNR[kk])
@@ -335,7 +341,8 @@ for kk in tqdm(range(len(parameters))):
     
     plt.tight_layout()
     plt.legend()
-    plt.savefig('/home/bgonchar/out_gwmem_2022/GWTC-like_population_20230314/w_'+str(kk)+'.png')
+    #plt.savefig('/home/bgonchar/out_gwmem_2022/GWTC-like_population_20230314/w_'+str(kk)+'.png')
+    plt.savefig('/home/bgonchar/out_gwmem_2022/w_'+str(kk)+'.png')
     plt.close()
     
     if calculate_errors:
@@ -350,7 +357,8 @@ for kk in tqdm(range(len(parameters))):
             cc.add_chain(chains[new_key], parameters=fisher_parameters, name=new_key)
         cc.configure(usetex=False)
         fig = cc.plotter.plot()
-        plt.savefig('/home/bgonchar/out_gwmem_2022/GWTC-like_population_20230314/w_err_'+str(kk)+'.png')
+        #plt.savefig('/home/bgonchar/out_gwmem_2022/GWTC-like_population_20230314/w_err_'+str(kk)+'.png')
+        plt.savefig('/home/bgonchar/out_gwmem_2022/w_err_'+str(kk)+'.png')
         plt.close()
     
         #chain_nrsur = np.random.multivariate_normal(np.array([parameter_values[key] for key in fisher_parameters]), errors[other_waveform],size=10000)

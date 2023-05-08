@@ -66,6 +66,9 @@ for kk in range(opts.inj*opts.num, (opts.inj+1)*opts.num):
                           'f_ref': opts.f_ref
                       }
 
+        # Mask: passes all frequencies
+        network.detectors[dd].frequency_mask = np.squeeze(network.detectors[dd].frequencyvector > 0)
+
         waveform_obj = waveform_class(opts.waveform, parameter_values, data_params)
 
         network.detectors[dd].fisher_matrix[kk, :, :] = np.zeros((len(fisher_parameters),len(fisher_parameters)))
