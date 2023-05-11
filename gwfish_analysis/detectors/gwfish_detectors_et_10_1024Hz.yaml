@@ -35,10 +35,10 @@ CE1:
             duty_factor:      0.85
             detector_class:   earthL
             plotrange:        10, 1000, 1e-25, 1e-20
-            fmin:             8
-            fmax:             1024
-            spacing:          geometric 
-            df:               1./4.    
+            fmin:             10.
+            fmax:             1024.
+            spacing:          linear
+            df:               1./128.    
             npoints:          5000 
 CE2:
             lat:              46.5 * np.pi / 180.
