@@ -8,7 +8,7 @@ ET:
             detector_class:   earthDelta
             plotrange:        3, 1000, 1e-25, 1e-20
             fmin:             10.
-            fmax:             1024.
+            fmax:             4096.
             spacing:          linear
             df:               1./128.
             npoints:          5000
@@ -21,10 +21,10 @@ VOY:
             duty_factor:      0.85
             detector_class:   earthL
             plotrange:        10, 1000, 1e-25, 1e-20
-            fmin:             10.
-            fmax:             1024.
-            spacing:          linear
-            df:               1./128.    
+            fmin:             8
+            fmax:             1024
+            spacing:          geometric 
+            df:               1./4.    
             npoints:          5000           
 CE1:
             lat:              46.5 * np.pi / 180.
@@ -49,8 +49,8 @@ CE2:
             duty_factor:      0.85
             detector_class:   earthL
             plotrange:        10, 1000, 1e-25, 1e-20
-            fmin:             10.
-            fmax:             1024.
+            fmin:             8
+            fmax:             1024
             spacing:          geometric 
             df:               1./4.    
             npoints:          5000 
@@ -63,10 +63,10 @@ LLO:
             duty_factor:      0.85
             detector_class:   earthL
             plotrange:        10, 1000, 1e-25, 1e-20
-            fmin:             10.
-            fmax:             1024.
-            spacing:          linear
-            df:               1./128.    
+            fmin:             8
+            fmax:             1024
+            spacing:          geometric 
+            df:               1./4.    
             npoints:          5000    
 LHO:
             lat:              46.46 * np.pi / 180.
@@ -77,10 +77,10 @@ LHO:
             duty_factor:      0.85
             detector_class:   earthL
             plotrange:        10, 1000, 1e-25, 1e-20
-            fmin:             10.
-            fmax:             1024.
-            spacing:          linear
-            df:               1./128.    
+            fmin:             8
+            fmax:             1024
+            spacing:          geometric 
+            df:               1./4.    
             npoints:          5000 
 VIR:
             lat:              43.6 * np.pi / 180.
@@ -91,10 +91,10 @@ VIR:
             duty_factor:      0.85
             detector_class:   earthL
             plotrange:        10, 1000, 1e-25, 1e-20
-            fmin:             10.
-            fmax:             1024.
-            spacing:          linear
-            df:               1./128.    
+            fmin:             8
+            fmax:             1024
+            spacing:          geometric 
+            df:               1./4.    
             npoints:          5000 
 KAG:
             lat:              36.41 * np.pi / 180.
@@ -132,7 +132,7 @@ LISA:
             mission_lifetime: 4 * 3.16e7
             plotrange:        1e-3, 0.3, 1e-22, 1e-19
             fmin:             1/2**13
-            fmax:             1/2**6
+            fmax:             0.5
             spacing:          linear
             df:               1/2**13
 LGWA:

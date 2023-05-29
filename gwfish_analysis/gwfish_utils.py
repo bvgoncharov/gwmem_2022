@@ -49,8 +49,8 @@ def parse_commandline():
                       default=None, type=str)
     parser.add_option("-o", "--outdir", help="Output directory", default='./',
                       type=str)
-    parser.add_option("-l", "--label", help="Label for output files", default='_',
-                      type=str)
+    parser.add_option("-l", "--label", help="Label for output files", \
+                      default='_', type=str)
     parser.add_option("-w", "--waveform", help="Waveform name",
                       default='NRHybSur3dq8', type=str)
     parser.add_option("-W", "--waveform_class", help="Waveform class",
@@ -67,6 +67,9 @@ def parse_commandline():
                       type=float)
     parser.add_option("-m", "--td_fmin", help="Time-domain f_min",  default=3.,
                       type=float)
+    parser.add_option("-s", "--save_waveforms", help="Save all waveforms \
+                      evaluated during the Fisher matrix calculation",  \
+                      default=1, type=int)
     parser.add_option("-M", "--mem_sim", help="Memory terms to include",
                       default='J_E, J_J', type=str)
     parser.add_option("-e", "--j_e",
@@ -75,6 +78,11 @@ def parse_commandline():
     parser.add_option("-j", "--j_j",
                       help="J_J multiplicator, spin memory (between 0 and 1)",
                       default=0., type=float)
+    # Post-processing only
+    parser.add_option("-g", "--noise", help="0 noise off, otherwise N realizations", \
+                      default=0, type=int)
+    parser.add_option("-t", "--svd_threshold", help="SVD inversion",  default=1e-10,
+                      type=float)
 
     opts, args = parser.parse_args()
 
@@ -240,6 +248,31 @@ def h_lm_dict_to_sxs_waveform(h_lm, times, mem_additional_ell=0):
 #
 #def ifft(yy_tilde, df):
 #    return np.fft.ifft(yy_tilde) * df
+
+def fft_np(timeseries, dt, t_0, t_end):
+    frequencyseries = np.fft.rfft(timeseries)
+    frequencyseries /= 1/dt
+    frequencies = np.linspace(0, (1/dt) / 2, len(frequencyseries))
+    return frequencyseries, frequencies
+
+def fft_wrapper(ht, timevector, delta_t, f_min, f_max, geocent_time):
+
+    # FFT
+    hf, ff = fft_np(ht, delta_t, timevector[0], timevector[-1])
+    mask_f = (ff >= f_min) * (ff <= f_max)
+    frequencyvector = ff[mask_f]
+    delta_f = frequencyvector[1] - frequencyvector[0]
+    hf = hf[mask_f]
+
+    # Phase correction by epoch and delta t
+    dt = 1/delta_f + timevector[0]
+    hf *= np.exp(-1j * 2 * np.pi * dt * frequencyvector)
+
+    # Phase correction by geocentric time
+    phi_in = np.exp(1.j*(2*frequencyvector*np.pi*geocent_time))
+    hf = phi_in * np.conjugate(hf)
+ 
+    return hf, frequencyvector
 
 # For conversion to/from dimensionless units
 def amp_rescale_coeff(dist, m_tot):
@@ -467,6 +500,7 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
         self._td_strain_from_sph_modes()
         self._waveform_postprocessing()
 
+
     def _taper_lal(self):
         """
         Data conditioning: option 1, that might change fRef.
@@ -566,7 +600,8 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
         self._sxs_hlms_du = None
         self._J_J_modes = None
         self._J_E_modes = None
-        self._td_memory = 0.
+        #self.J_E = (0., 0.) # plus, cross
+        #self.J_J = (0., 0.)
         self._fd_memory = 0.
 
     def update_gw_params(self, new_gw_params):
@@ -578,7 +613,9 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
         # Specific to LALTD_SPH_Memory (this class)
         self._J_J_modes = None
         self._J_E_modes = None
-        self._td_memory = 0.
+        self._sxs_hlms_du = None
+        #self.J_E = (0., 0.)
+        #self.J_J = (0., 0.)
         self._fd_memory = 0.
 
     def calculate_time_domain_strain(self):
@@ -610,10 +647,6 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
         return time_rescale_coeff(self.m_tot)
 
     @property
-    def td_memory(self):
-        return self._td_memory
-
-    @property
     def fd_memory(self):
         return None
 
@@ -624,14 +657,39 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
     #    (-1)**(ll) * np.conjugate(self._lal_hlms[(ll, mm)].data.data)
 
     def _add_memory(self):
+        _len = self._lal_hlms[(2,2)].data.length
+        fake_neg_modes = not np.any([mm < 0 for (ll, mm) in self.possible_modes])
         if self.calculate_J_J_modes:
+            self.J_J = [np.zeros(_len), np.zeros(_len)]
             for lm in self.possible_modes:
-                self._td_memory += self.J_J_modes[lm] * self.amp_rescale * self.gw_params['J_J']
-                self._lal_hlms[lm].data.data += self.J_J_modes[lm] * self.amp_rescale * self.gw_params['J_J']
+                _strain_lm = self.J_J_modes[lm] * self.amp_rescale * self.gw_params['J_J']
+                self._lal_hlms[lm].data.data += _strain_lm
+                # Saving memory, also combining modes at the same time
+                # (_td_strain_from_sph_modes)
+                # It should be done simultaneously everywhere to avoid for loops
+                ylm = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], self.gw_params['phase'], -2, lm[0], lm[1])
+                self.J_J[0] += np.real(ylm * _strain_lm)
+                self.J_J[1] -= np.imag(ylm * _strain_lm)
+                if fake_neg_modes and mm>0:
+                    yl_m = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], self.gw_params['phase'], -2, lm[0], -lm[1])
+                    self.J_J[0] += np.real(yl_m * (-1)**(ll) * np.conjugate(_strain_lm))
+                    self.J_J[1] -= np.imag(yl_m * (-1)**(ll) * np.conjugate(_strain_lm))
         if self.calculate_J_E_modes:
+            self.J_E = [np.zeros(_len), np.zeros(_len)]
             for lm in self.possible_modes:
-                self._td_memory += self.J_E_modes[lm] * self.amp_rescale * self.gw_params['J_E']
-                self._lal_hlms[lm].data.data += self.J_E_modes[lm] * self.amp_rescale * self.gw_params['J_E']
+                _strain_lm = self.J_E_modes[lm] * self.amp_rescale * self.gw_params['J_E']
+                self._lal_hlms[lm].data.data += _strain_lm
+                # Saving memory, also combining modes at the same time
+                # (_td_strain_from_sph_modes)
+                # It should be done simultaneously everywhere to avoid for loops
+                ylm = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], self.gw_params['phase'], -2, lm[0], lm[1])
+                self.J_E[0] += np.real(ylm * _strain_lm)
+                self.J_E[1] -= np.imag(ylm * _strain_lm)
+                if fake_neg_modes and mm>0:
+                    yl_m = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], self.gw_params['phase'], -2, lm[0], -lm[1])
+                    self.J_E[0] += np.real(yl_m * (-1)**(ll) * np.conjugate(_strain_lm))
+                    self.J_E[1] -= np.imag(yl_m * (-1)**(ll) * np.conjugate(_strain_lm))
+
 
         ## Old way, based on gwtools.sxs_memory:
         ##self.new_modes = 0
@@ -677,19 +735,31 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
 
     @property
     def J_E(self):
-        _len = len(self.J_E[(2,2)])
-        J_E_plus, J_E_cross = np.zeros(_len), np.zeros(_len)
-        for (ll, mm) in self.J_E_modes:
-            # To test modes, not a good idea to use because of possible confusion
-            #if ll > self.l_max:
-            #    continue
-            ylm = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], # inclination
-                                                    self.gw_params['phase'], -2, ll, mm)
-            # LAL: Cross-polarization is the *negative* of the imaginary part
-            J_E_plus += np.real(ylm * self.J_E_modes[(ll, mm)].data.data)
-            J_E_cross -= np.imag(ylm * self.J_E_modes[(ll, mm)].data.data)
+        return self._J_E
 
-        return J_E_plus, J_E_cross
+    @J_E.setter
+    def J_E(self, new_J_E):
+        self._J_E = new_J_E
+
+    @property
+    def J_J(self):
+        return self._J_J
+
+    @J_J.setter
+    def J_J(self, new_J_J):
+        self._J_J = new_J_J
+
+    @property
+    def timevector(self):
+        return self.time_array_for_lal_timeseries(self._lal_hlms[(2,2)])
+
+    @property
+    def J_E_tilde(self):
+        return (fft_wrapper(self.J_E[0], self.timevector, self.delta_t, self.f_min, self.f_max, self.gw_params['geocent_time'])[0], fft_wrapper(self.J_E[1], self.timevector, self.delta_t, self.f_min, self.f_max, self.gw_params['geocent_time'])[0])
+
+    @property
+    def J_J_tilde(self):
+        return (fft_wrapper(self.J_J[0], self.timevector, self.delta_t, self.f_min, self.f_max, self.gw_params['geocent_time'])[0], fft_wrapper(self.J_J[1], self.timevector, self.delta_t, self.f_min, self.f_max, self.gw_params['geocent_time'])[0])
 
     @property
     def calculate_J_J_modes(self):
@@ -775,59 +845,427 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
             self._sxs_hlms_du._metadata['spin_weight'] = -2
         return self._sxs_hlms_du
 
-def nrsur_memestr(waveform, frequencyvector, mass_1, mass_2, luminosity_distance, redshift, theta_jn, phase, geocent_time,
-           a_1=0, tilt_1=0, phi_12=0, a_2=0, tilt_2=0, phi_jl=0, lambda_1=0, lambda_2=0, **kwargs):
-
-    # Conversion
-    if mass_1 < mass_2:
-      mass_x = copy.copy(mass_1)
-      mass_1 = copy.copy(mass_2)
-      mass_2 = mass_x
-      # Above quick fix
-      #raise ValueError('Must be mass_1 >= mass_2')
-    qq = mass_1/mass_2                # q = m1/m2 >= 1
-    M_tot = (mass_1 + mass_2)*(1+redshift)
-    f_ref = frequencyvector[0,0]  # BORIS: was 50 for LAL # Reference frequecny in Hz. The spins are assumed to specified at this frequency
-    iota, spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z = wf.bilby_to_lalsimulation_spins(
-        theta_jn=theta_jn, phi_jl=phi_jl, tilt_1=tilt_1, tilt_2=tilt_2,
-        phi_12=phi_12, a_1=a_1, a_2=a_2, mass_1=mass_1, mass_2=mass_2,
-        reference_frequency=f_ref, phase=phase)
-
-    chiA = [spin_1x, spin_1y, spin_1z]          # dimensionless spin of the heavier BH
-    chiB = [spin_2x, spin_2y, spin_2z]         # dimensionless spin of the lighter BH
-
-    #f_low = 0                        # initial frequency, f_low=0 returns the full surrogate
-
-    ellMax = 4                       # Highest ell index for modes to use
-
-    # dyn stands for dynamics, do dyn.keys() to see contents
-    if sur._domain_type == 'Time':
-        dt = 0.5/frequencyvector[-1,0] #1./4096                     # step size in seconds
-
-
-        f_max = frequencyvector[-1,0]
-        delta_f = frequencyvector[1,0]-frequencyvector[0,0]
-        t_obs_nrsur = (2 * f_max * dt) / delta_f
-        # Optimally, here we should calculate f_gw(-t_obs_nrsur)
-        #nrsur_f_low = np.min(frequencyvector)
-        nrsur_f_low = 3.
-        tt, hh, dyn = sur(qq, chiA, chiB, dt=dt, f_low=nrsur_f_low, f_ref=f_ref, ellMax=ellMax, M=M_tot, dist_mpc=luminosity_distance, inclination=theta_jn, phi_ref=phase, units='mks')
-
-        import memestr
-        memestr.waveforms.nrhybsur3dq8.fd_nr_sur
-        memestr.waveforms.nrhybsur3dq8.fd_nr_sur(np.squeeze(frequencyvector),qq,M_tot,chiA,chiB,luminosity_distance,theta_jn,phase)
-        import ipdb; ipdb.set_trace()
-
-class GWSurrogate_Waveform(wf.LALTD_Waveform):
+class NRSurSPH_Memory(wf.Waveform):
     def __init__(self, name, gw_params, data_params):
         super().__init__(name, gw_params, data_params)
+        self.reset_waveform_evaluation()
+        self.timevector = None
+        self.timevector_du = None
+        self._time_domain_f_min = None
+        self._import_nrsurrogate()
+
+        #self.calculate_time_domain_sph_du() # td
+        #self._add_missing_lms_in_lal_hlms() # td
+        #self.sxs_hlms_du # Td
+        #self._add_memory() # td 
+        #self._td_strain_from_sph_du() # td 
+        #import ipdb; ipdb.set_trace()
+
+    def reset_waveform_evaluation(self):
+        """ Clear all cache (imporant) """
+        # Time-domain specific
         self._m1_m2_to_mtot_q()
+        self._init_lal_gw_parameters()
+        self._sxs_hlms_du = None
+        self._ht_plus = None
+        self._ht_cross = None
+        # Memory-specific
+        self._fd_memory = 0.
+        self._J_J_modes = None
+        self._J_E_modes = None
+
+    def update_gw_params(self, new_gw_params):
+        self._update_gw_params_common(new_gw_params)
+        self.reset_waveform_evaluation()
 
     def _m1_m2_to_mtot_q(self):
-        self.gw_params['total_mass'] = self.gw_params['mass_1'] + self.gw_params['mass_2']
+        self.gw_params['total_mass'] = (self.gw_params['mass_1'] + self.gw_params['mass_2']) * (1 + self.gw_params['redshift'])
         self.gw_params['mass_ratio'] = self.gw_params['mass_1'] / self.gw_params['mass_2']
         if self.gw_params['mass_1'] < self.gw_params['mass_2']:
             self.gw_params['mass_ratio'] = 1. / self.gw_params['mass_ratio']
+
+    @property
+    def time_domain_f_min(self):
+        """
+        In gwsurrogate, f_min for a given waveform has to correspond to earlier 
+        or equal time to the minimum time of a given timevector (which we fix 
+        for the first waveform evaluation for a waveform object). In Fisher 
+        matrix calculation, perturbing distance/mass might affect start time 
+        of the waveform. So, time-domain f_min has to be slightly lower to 
+        avoid error. Moreover, frequencyvector (and, thus, f_min) is 
+        overwritten here.
+        """
+        if self._time_domain_f_min is None:
+            if 'time_domain_f_min' in self.data_params:
+                self._time_domain_f_min = self.data_params['time_domain_f_min']
+            else:
+                self._time_domain_f_min = self.f_min
+                logging.warning('Setting f_min to {}'.format(\
+                                self._time_domain_f_min))
+        return self._time_domain_f_min
+
+    @property
+    def _gw_params_for_spin_conversion(self):
+        return ['theta_jn', 'phi_jl', 'tilt_1', 'tilt_2',
+                'phi_12', 'a_1', 'a_2', 'mass_1', 'mass_2', 'phase']
+
+    def _init_lal_gw_parameters(self):
+        gwfish_input_params = {kk: self.gw_params[kk] for kk in self._gw_params_for_spin_conversion}
+        self.gw_params['iota'], self.gw_params['spin_1x'], \
+            self.gw_params['spin_1y'], self.gw_params['spin_1z'], \
+            self.gw_params['spin_2x'], self.gw_params['spin_2y'], \
+            self.gw_params['spin_2z'] = wf.bilby_to_lalsimulation_spins(\
+            reference_frequency=self.f_ref, **gwfish_input_params)
+
+    def f_to_nat(self, ff):
+        """ Frequency to natural units """
+        return ff * self.t_rescale
+
+    def t_to_nat(self, tt):
+        """ Time to natural units """
+        return tt / self.t_rescale
+
+    @property
+    def amp_rescale(self):
+        """
+        A multiplicative coefficient to convert GW time series data to/from
+        dimensionless units.
+        """
+        return amp_rescale_coeff(self.gw_params['luminosity_distance'], \
+                                 self.gw_params['total_mass'])
+
+    @property
+    def t_rescale(self):
+        """
+        A multiplicative coefficient to convert time array corresponding to
+        GW time series data to/from dimensionless units.
+        """
+        return time_rescale_coeff(self.gw_params['total_mass'])
+
+    @property
+    def l_max(self):
+        if self._l_max is None:
+            if 'l_max' in self.data_params:
+                self.l_max = self.data_params['l_max']
+            else:
+                self.l_max = 4
+                logging.warning('Setting l_max to {}'.format(self._l_max))
+        return self._l_max
+
+    @property
+    def max_ll_hlms(self):
+        return max(self._time_domain_sph_du.keys())[0]
+
+    @property
+    def min_ll_hlms(self):
+        return min(self._time_domain_sph_du.keys())[0]
+
+    @property
+    def possible_modes(self):
+        """ All possible SPH modes based on l_max found in LAL output """
+        return [(ll, mm) for ll in range(2, self.max_ll_hlms+1) for mm in range(-ll,ll+1)]
+
+    def calculate_time_domain_strain(self):
+        self.calculate_time_domain_sph_du() # td
+        self._add_missing_lms_in_lal_hlms() # td
+        self.sxs_hlms_du # Td
+        self._add_memory() # td
+        self._td_strain_from_sph_du()
+        self.timevector = self.timevector_du * self.t_rescale
+        # Tapering
+        self._ht_plus = self._taper_timeseries_lal(self._ht_plus)
+        self._ht_cross = self._taper_timeseries_lal(self._ht_cross)
+        #self._waveform_postprocessing()
+        htp = self._ht_plus[:, np.newaxis]
+        htc = self._ht_cross[:, np.newaxis]
+        polarizations = np.hstack((htp, htc))
+        self._time_domain_strain = polarizations
+
+    @property
+    def _lal_mass_1(self):
+        return self.gw_params['mass_1'] * lal.MSUN_SI * (1 + self.gw_params['redshift'])
+
+    @property
+    def _lal_mass_2(self):
+        return self.gw_params['mass_2'] * lal.MSUN_SI * (1 + self.gw_params['redshift'])
+
+    @property
+    def fisco(self):
+        return 1.0 / (np.power(6.0, 1.5) * lal.PI * \
+               (self._lal_mass_1 + self._lal_mass_2) * \
+               lal.MTSUN_SI / lal.MSUN_SI)
+
+    def _taper_timeseries_lal(self, timeseries):
+        """
+        Data conditioning: option 1, that might change fRef.
+        This is based on SimInspiralTDfromTD.
+        """
+
+        extra_time_fraction = 0.1
+        extra_cycles = 3.0
+        textra = extra_cycles / self.f_min
+
+        tchirp = lalsim.SimInspiralChirpTimeBound(self.f_min,
+            self._lal_mass_1,
+            self._lal_mass_2,
+            self.gw_params['spin_1z'], self.gw_params['spin_2z'])
+
+        # Tapering beginning of the waveform, several cycles
+        timeseries = taper_1(timeseries, self.delta_t, extra_time_fraction * tchirp + textra)
+        # Tapering one cycle at f_min at the beginning and one cycle at f_isco
+        # at the end
+        timeseries = taper_2(timeseries, self.delta_t, self.f_min, self.fisco)
+        return timeseries
+
+    def _fd_gwfish_output_format(self, hfp, hfc):
+
+        hfp = hfp[:, np.newaxis]
+        hfc = hfc[:, np.newaxis]
+
+        polarizations = np.hstack((hfp, hfc))
+
+        return polarizations
+
+    def calculate_frequency_domain_strain(self):
+        if self.time_domain_strain is None:
+            self.calculate_time_domain_strain()
+
+        # Zero pad data, to make it 2**N length
+        #zp_length = int(2**np.ceil(np.log2(len(self._ht_plus))))
+        #extra_length = zp_length - len(self._ht_plus)
+        #pad_1 = extra_length // 2
+        #pad_2 = pad_1 + extra_length % 2
+        #ht_plus_zp = np.concatenate([np.zeros(pad_1),self._ht_plus,np.zeros(pad_2)])
+        #ht_cross_zp = np.concatenate([np.zeros(pad_1),self._ht_cross,np.zeros(pad_2)])
+        #times_add_1 = np.arange(self.timevector[0]-self.delta_t*pad_1,self.timevector[0],self.delta_t)
+        #times_add_2 = np.arange(self.timevector[-1]+self.delta_t,self.timevector[-1]+self.delta_t*(pad_2+1),self.delta_t)
+        #timevector_zp = np.concatenate([times_add_1,self.timevector,times_add_2])
+
+        # FFT
+        self._hf_plus, ff = fft_np(self._ht_plus, self.delta_t, self.timevector[0], self.timevector[-1])
+        self._hf_cross, ff = fft_np(self._ht_cross, self.delta_t, self.timevector[0], self.timevector[-1])
+        mask_f = (ff >= self.f_min) * (ff <= self.f_max)
+        self.frequencyvector = ff[mask_f]
+        self._hf_plus = self._hf_plus[mask_f]
+        self._hf_cross = self._hf_cross[mask_f]
+
+
+        # Phase correction by epoch and delta t
+        dt = 1/self.delta_f + self.timevector[0]
+        self._hf_plus *= np.exp(-1j * 2 * np.pi * dt * self.frequencyvector)
+        self._hf_cross *= np.exp(-1j * 2 * np.pi * dt * self.frequencyvector)
+
+        # Phase correction by geocentric time
+        phi_in = np.exp(1.j*(2*self.frequencyvector*np.pi*self.gw_params['geocent_time']))
+        self._hf_plus = phi_in * np.conjugate(self._hf_plus)
+        self._hf_cross = phi_in * np.conjugate(self._hf_cross)
+        polarizations = self._fd_gwfish_output_format(self._hf_plus, self._hf_cross)
+        self._frequency_domain_strain = polarizations
+
+        # Create LAL timeseries
+        #self._lal_ht_plus = lal.CreateREAL8TimeSeries('h_plus', self.gw_params['geocent_time'], self.f_min, self.delta_t, 'strain', zp_length)
+        #self._lal_ht_cross = lal.CreateREAL8TimeSeries('h_cross', self.gw_params['geocent_time'], self.f_min, self.delta_t, 'strain', zp_length)
+        #self._lal_ht_plus.epoch = self.gw_params['geocent_time']
+        #self._lal_ht_cross.epoch = self.gw_params['geocent_time']
+        #self._lal_ht_plus.data.data = ht_plus_zp
+        #self._lal_ht_cross.data.data = ht_cross_zp
+        ##self._lal_ht_plus = lal.CreateREAL8TimeSeries('h_plus', self.gw_params['geocent_time'], self.f_min, self.delta_t, 'strain', len(self.timevector))
+        ##self._lal_ht_cross = lal.CreateREAL8TimeSeries('h_cross', self.gw_params['geocent_time'], self.f_min, self.delta_t, 'strain', len(self.timevector))
+        ##self._lal_ht_plus.epoch = self.gw_params['geocent_time']
+        ##self._lal_ht_cross.epoch = self.gw_params['geocent_time']
+        ##self._lal_ht_plus.data.data = self._ht_plus
+        ##self._lal_ht_cross.data.data = self._ht_cross
+
+        ##self._lal_ht_plus.data.data[] = self._ht_plus
+        ###self._lal_ht_cross.data.data[] = self._ht_cross
+
+        ## FFT
+        #lal_hf_plus = fft.fft_lal_timeseries(self._lal_ht_plus, self.delta_f)
+        #lal_hf_cross = fft.fft_lal_timeseries(self._lal_ht_cross, self.delta_f)
+        #lal_ff = np.arange(lal_hf_plus.f0, lal_hf_plus.data.length*lal_hf_plus.deltaF, lal_hhf_plus.deltaF)
+        #mask_ff = (lal_ff >= self.f_min) * (lal_ff <= self.f_max)
+        #self.frequencyvector = lal_ff[mask_ff]
+        #self._hf_plus = lal_hf_plus.data.data[mask_ff]
+        #self._hf_cross = lal_hf_cross.data.data[mask_ff]
+
+    @property
+    def timevector_du(self):
+        return self._timevector_du
+
+    @timevector_du.setter
+    def timevector_du(self, newtimevector_du):
+        self._timevector_du = newtimevector_du
+
+    def calculate_time_domain_sph_du(self):
+        if self.timevector_du is None:
+            self.timevector_du, self._time_domain_sph_du, self.dyn = \
+                self.sur(self.gw_params['mass_ratio'], \
+                [self.gw_params['spin_1x'], \
+                self.gw_params['spin_1y'], \
+                self.gw_params['spin_1z']], \
+                [self.gw_params['spin_2x'], \
+                self.gw_params['spin_2y'], \
+                self.gw_params['spin_2z']], \
+                dt=self.t_to_nat(self.delta_t), \
+                f_low=self.f_to_nat(self.time_domain_f_min), \
+                f_ref=self.f_to_nat(self.f_ref), ellMax=4, \
+                #M=self.gw_params['total_mass'], \
+                #dist_mpc=self.gw_params['luminosity_distance'], \
+                #inclination=self.gw_params['iota'], \
+                phi_ref=0., units='dimensionless')
+        else:
+            _, self._time_domain_sph_du, self.dyn = \
+                self.sur(self.gw_params['mass_ratio'], \
+                [self.gw_params['spin_1x'], \
+                self.gw_params['spin_1y'], \
+                self.gw_params['spin_1z']], \
+                [self.gw_params['spin_2x'], \
+                self.gw_params['spin_2y'], \
+                self.gw_params['spin_2z']], \
+                times=self.timevector_du, \
+                f_low=self.f_to_nat(self.time_domain_f_min), \
+                f_ref=self.f_to_nat(self.f_ref), ellMax=4, \
+                #M=self.gw_params['total_mass'], \
+                #dist_mpc=self.gw_params['luminosity_distance'], \
+                #inclination=self.gw_params['iota'], \
+                phi_ref=0., units='dimensionless')
+
+    @property
+    def sxs_hlms_du(self):
+        """ Strain SPH modes converted to SXS format. In dimensionless units (du), all possible modes. """
+        if self._sxs_hlms_du is None:
+            out = [self._time_domain_sph_du[(ll,mm)] for (ll,mm) in self.possible_modes]
+
+            self._sxs_hlms_du =  sxs.waveforms.WaveformModes(np.array(out).T,
+                                               time=self.timevector_du,
+                                               modes_axis=1, time_axis=0,
+                                               ell_min=self.min_ll_hlms,
+                                               ell_max=self.max_ll_hlms)
+            self._sxs_hlms_du._metadata['spin_weight'] = -2
+        return self._sxs_hlms_du
+
+
+    def _add_missing_lms_in_lal_hlms(self):
+        _lm = (2,2)
+        for (ll,mm) in self.possible_modes:
+            if (ll,mm) not in self._time_domain_sph_du.keys():
+                if (ll,-mm) in self._time_domain_sph_du.keys() and mm<0:
+                    # Faking negative modes
+                    self._time_domain_sph_du[(ll,mm)] = (-1)**(ll) * np.conjugate(self._time_domain_sph_du[(ll,-mm)])
+                else:
+                    self._time_domain_sph_du[(ll,mm)] = np.zeros( len(self._time_domain_sph_du[_lm]), dtype=np.complex128)
+
+    def _td_strain_from_sph_du(self):
+        _m = (2,2)
+        self._ht_plus = 0.
+        self._ht_cross = 0.
+        fake_neg_modes = not np.any([mm < 0 for (ll, mm) in self._time_domain_sph_du])
+
+        for (ll, mm) in self._time_domain_sph_du:
+
+            ylm = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], # inclination
+                                                    self.gw_params['phase'], -2, ll, mm)
+            # LAL: Cross-polarization is the *negative* of the imaginary part
+            self._ht_plus += np.real(ylm * self._time_domain_sph_du[(ll, mm)] * self.amp_rescale)
+            self._ht_cross -= np.imag(ylm * self._time_domain_sph_du[(ll, mm)] * self.amp_rescale)
+            # If m<0 modes are not in the dictionary of modes, we calculate
+            # them from m>0 modes
+            if fake_neg_modes and mm>0:
+                yl_m = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'],
+                                                        self.gw_params['phase'], -2, ll, -mm)
+                self._ht_plus += np.real(yl_m * (-1)**(ll) * np.conjugate(self._time_domain_sph_du[(ll, mm)]) * self.amp_rescale)
+                self._ht_cross -= np.imag(yl_m * (-1)**(ll) * np.conjugate(self._time_domain_sph_du[(ll, mm)]) * self.amp_rescale)
+        # Here, waveform is not conditioned
+
+    def _add_memory(self):
+        if self.calculate_J_J_modes:
+            for lm in self.possible_modes:
+                self._time_domain_sph_du[lm] += self.J_J_modes[lm] * self.gw_params['J_J']
+        if self.calculate_J_E_modes:
+            for lm in self.possible_modes:
+                self._time_domain_sph_du[lm] += self.J_E_modes[lm] * self.gw_params['J_E']
+
+    @property
+    def calculate_J_E_modes(self):
+        return True if 'J_E' in self.data_params['memory_contributions'] else False
+
+    @property
+    def J_E_modes(self):
+        """ Displacement memory modes, dimensionless units """
+        if self._J_E_modes is None:
+            ref_time = time.time()
+            self._J_E_modes = sxs_waveform_to_h_lm_dict(\
+                        sxs.waveforms.memory.J_E(self.sxs_hlms_du), \
+                        self.possible_modes)
+            print('[!] Time for J_E calculation: ', time.time()-ref_time)
+        return self._J_E_modes
+
+    @property
+    def J_E(self):
+        _len = len(self.J_E[(2,2)])
+        J_E_plus, J_E_cross = np.zeros(_len), np.zeros(_len)
+        for (ll, mm) in self.J_E_modes:
+            # To test modes, not a good idea to use because of possible confusion
+            #if ll > self.l_max:
+            #    continue
+            ylm = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], # inclination
+                                                    self.gw_params['phase'], -2, ll, mm)
+            # LAL: Cross-polarization is the *negative* of the imaginary part
+            J_E_plus += np.real(ylm * self.J_E_modes[(ll, mm)].data.data)
+            J_E_cross -= np.imag(ylm * self.J_E_modes[(ll, mm)].data.data)
+
+        return J_E_plus, J_E_cross
+
+    @property
+    def calculate_J_J_modes(self):
+        return True if 'J_J' in self.data_params['memory_contributions'] else False
+
+    @property
+    def J_J_modes(self):
+        """ Flux part of the spin memory modes, dimensionless units """
+        if self._J_J_modes is None:
+            ref_time = time.time()
+            self._J_J_modes = sxs_waveform_to_h_lm_dict(\
+                        sxs.waveforms.memory.J_J(self.sxs_hlms_du), \
+                        self.possible_modes)
+            print('[!] Time for J_J calculation: ', time.time()-ref_time)
+        return self._J_J_modes
+
+    # Bellow is for pure time-domain class, no SPH
+    #def calculate_time_domain_strain(self):
+    #    self.timevector, self._time_domain_strain, self.dyn = \
+    #        self.sur(self.gw_params['mass_ratio'], \
+    #        [self.gw_params['spin_1x'], \
+    #        self.gw_params['spin_1y'], \
+    #        self.gw_params['spin_1z']], \
+    #        [self.gw_params['spin_2x'], \
+    #        self.gw_params['spin_2y'], \
+    #        self.gw_params['spin_2z']], \
+    #        dt=self.delta_t, f_low=self.f_min, f_ref=self.f_ref, ellMax=4, \
+    #        M=self.gw_params['total_mass'], \
+    #        dist_mpc=self.gw_params['luminosity_distance'], \
+    #        inclination=self.gw_params['iota'], \
+    #        phi_ref=0., units='mks')
+
+    def _import_nrsurrogate(self):
+        try:
+            import gwsurrogate
+        except:
+            raise ValueError('Module gwsurrogate not found.')
+        env_vars = os.environ
+        if 'LAL_DATA_PATH' in env_vars:
+            if self.name+'.h5' in os.listdir(os.environ['LAL_DATA_PATH']):
+                self.sur = gwsurrogate.LoadSurrogate(os.environ['LAL_DATA_PATH']+self.name+'.h5')
+            else:
+                err_message = 'File '+self.name+'.h5'+' mus be in '+os.environ['LAL_DATA_PATH']
+                raise ValueError(err_message)
+        else:
+            raise ValueError('Please set LAL_DATA_PATH and put surrogate waveform files there.')
+
+    def clear_nrsurrogate(self):
+        """ Needed before pickling """
+        self.sur = None
+
 
     #def calculate_time_domain_strain(self):
     #    tt, hh, dyn = sur(self.gw_params['mass_ratio'], 
@@ -846,252 +1284,5 @@ class GWSurrogate_Waveform(wf.LALTD_Waveform):
 
     #    self._time_domain_strain = polarizations
 
-def nrsur_caller(waveform, frequencyvector, mass_1, mass_2, luminosity_distance, redshift, theta_jn, phase, geocent_time,
-           a_1=0, tilt_1=0, phi_12=0, a_2=0, tilt_2=0, phi_jl=0, lambda_1=0, lambda_2=0, **kwargs):
-    """
-    kwargs:
-    - fft_roll_off: roll-off for the FFT window in seconds. Zero-padding data will be added after the end of the waveform,
-    so that windowing does not apply to the merger part of the signal.
-    """
-
-    # Conversion
-    if mass_1 < mass_2:
-      mass_x = copy.copy(mass_1)
-      mass_1 = copy.copy(mass_2)
-      mass_2 = mass_x
-      # Above quick fix
-      #raise ValueError('Must be mass_1 >= mass_2')
-    qq = mass_1/mass_2                # q = m1/m2 >= 1
-    M_tot = (mass_1 + mass_2)*(1+redshift)
-    f_ref = frequencyvector[0,0]  # BORIS: was 50 for LAL # Reference frequecny in Hz. The spins are assumed to specified at this frequency
-    iota, spin_1x, spin_1y, spin_1z, spin_2x, spin_2y, spin_2z = wf.bilby_to_lalsimulation_spins(
-        theta_jn=theta_jn, phi_jl=phi_jl, tilt_1=tilt_1, tilt_2=tilt_2,
-        phi_12=phi_12, a_1=a_1, a_2=a_2, mass_1=mass_1, mass_2=mass_2,
-        reference_frequency=f_ref, phase=phase)
-
-    chiA = [spin_1x, spin_1y, spin_1z]          # dimensionless spin of the heavier BH
-    chiB = [spin_2x, spin_2y, spin_2z]         # dimensionless spin of the lighter BH
-
-    #f_low = 0                        # initial frequency, f_low=0 returns the full surrogate
-
-    ellMax = 4                       # Highest ell index for modes to use
-
-    # dyn stands for dynamics, do dyn.keys() to see contents
-    if sur._domain_type == 'Time':
-        dt = 0.5/frequencyvector[-1,0] #1./4096                     # step size in seconds
-
-        ## For adding memory (TO-DO)
-        ## Ok, what I need to do:
-        ## 1. Convert time/frequency parameters to natural units t[M]
-        ## 2. Call nrsur in natural units, without M_tot, D_L, and without inclination to get modes
-        ## 3. Add memory
-        ## 4. Convert back to observable units (with M_tot, D_L) and sum modes (with inclination)
-        ## 5. Condition the waveform and FFT
-
-        #tt, hh, dyn = sur(qq, chiA, chiB, dt=0.1, f_low=0.02, ellMax=4)#np.min(frequencyvector), f_ref=f_ref)
-
-        ## Test
-        #from gwtools import sxs_memory
-        #from matplotlib import pyplot as plt
-        #import tqdm
 
 
-        #h_mem_sxs, times_sxs = sxs_memory(hh, tt)
-        #plt.close()
-        #for kk in tqdm.tqdm(hh.keys()):
-        #    plt.plot(times_sxs, np.real(h_mem_sxs[kk]),label='After memory '+str(kk))
-        #    plt.plot(tt, np.real(hh[kk]), label='Before memory '+str(kk))
-        #    plt.xlabel('t')
-        #    plt.ylabel('h')
-        #    plt.legend()
-        #    plt.savefig('/Users/boris.goncharov/projects/out_gwmem_2022/mem_modes_test/nrsur_'+str(kk)+'.png')
-        #    plt.close()
-
-
-        # f_low=np.min(frequencyvector) (2 Hz) yields an error related to omega for NRSur2, but not for NRSur4
-        # For NRHybSur3dq8, any minimum frequency works (including 2 Hz for ET)
-        f_max = frequencyvector[-1,0]
-        delta_f = frequencyvector[1,0]-frequencyvector[0,0]
-        t_obs_nrsur = (2 * f_max * dt) / delta_f
-        # Optimally, here we should calculate f_gw(-t_obs_nrsur)
-        #nrsur_f_low = np.min(frequencyvector)
-        nrsur_f_low = 3.
-        tt, hh, dyn = sur(qq, chiA, chiB, dt=dt, f_low=nrsur_f_low, f_ref=f_ref, ellMax=ellMax, M=M_tot, dist_mpc=luminosity_distance, inclination=theta_jn, phi_ref=phase, units='mks')
-
-        # Truncate for better FFT
-        required_length = int(1/delta_f * 1/dt)
-        logging.warning('Rounding up time vectors')
-        tt = tt[len(tt)-required_length:]
-        hh = hh[len(hh)-required_length:]
-
-        # For NRSur7dq4, NRSur7dq2, 2 Hz does not work (possibly, waveforms are too short)
-        #tt, hh, dyn = sur(qq, chiA, chiB, dt=dt, f_low=2.0, f_ref=f_ref, ellMax=ellMax, M=M_tot, dist_mpc=luminosity_distance,
-        #                  inclination=iota, phi_ref=phase, units='mks')
-
-
-
-        # =================================================================== #
-        # FFT, AFTER CONVERTING TO LAL TIMESERIES, AS OUT OF SimInspiralTD, CONDITIONING
-        lal_epoch = geocent_time # Is it correct?????
-        lal_f0 = np.min(frequencyvector)
-        lal_hh_plus = lal.CreateREAL8TimeSeries('h_plus', lal_epoch, lal_f0, dt, 'strain', len(tt))
-        lal_hh_cross = lal.CreateREAL8TimeSeries('h_cross', lal_epoch, lal_f0, dt, 'strain', len(tt))
-        logging.warning('Taking -real(h) for h_+ and imag(h) for h_x. Should be opposite: (real(h), -imag(h))')
-        lal_hh_plus.data.data = -np.real(hh)
-        lal_hh_cross.data.data = np.imag(hh)
-
-        # Data conditioning: option 1, that might change fRef
-        # This is based on SimInspiralTDfromTD
-        # Preparing variables
-        f_min = frequencyvector[0,0] # Can be changed there, need to check
-        extra_time_fraction = 0.1
-        extra_cycles = 3.0
-        textra = extra_cycles / f_min
-        original_f_min = nrsur_f_low # f_min
-        lal_mass_1 = mass_1 * lal.MSUN_SI * (1 + redshift)
-        lal_mass_2 = mass_2 * lal.MSUN_SI * (1 + redshift)
-        lal_S1z = chiA[-1] # also spin_1z
-        lal_S2z = chiB[-1] # also spin_2z
-        tchirp = lalsim.SimInspiralChirpTimeBound(f_min, lal_mass_1, lal_mass_2, lal_S1z, lal_S2z)
-        fisco = 1.0 / (np.power(6.0, 1.5) * lal.PI * (lal_mass_1 + lal_mass_2) * lal.MTSUN_SI / lal.MSUN_SI);
-
-        # Calling data conditioning
-        lalsim.SimInspiralTDConditionStage1(lal_hh_plus, lal_hh_cross, extra_time_fraction * tchirp + textra, original_f_min)
-        lalsim.SimInspiralTDConditionStage2(lal_hh_plus, lal_hh_cross, f_min, fisco)
-
-        # [V - CHECK!] AT THIS STAGE WAVEFORMS AGREE IN CYCLES/AMPLITUDE
-        #logging.warning('At this stage waveforms agree in cycles/amplitude with LAL')
-
-        # COPYING _ht_postproccessing_SimInspiralTD()
-        if True: # to keep padding from left, as in waveforms.py
-            # This is done in LAL prior to a Fourier transform in SimInspiralFD, after SimInspiralTD is called.
-            # Step 0 (even before SimInspiralTD). Set up a Nyqist frequency to be equal to maximum frequency
-            # https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c#L2895
-            f_nyquist = f_max
-            if int(np.log2(f_max/delta_f)) == np.log2(f_max/delta_f):
-                #logging.warning('f_max/deltaF is not a power of two: changing f_max.')
-                f_nyquist = 2**(np.floor(np.log2(f_nyquist/delta_f))-np.log2(1/delta_f))
-                if f_max != f_nyquist:
-                    raise ValueError('f_nyquist should be equal to f_max')
-
-            # Step 1. Setting variable chirplen, and also frequency resolution (latter, if not set already)
-            # Waveforms will be resized to chirplen. So, zeros added at the beginning (zero-padded) if
-            # chirplen > h_plus.data.length, otherwise truncated
-            # https://git.ligo.org/lscsoft/lalsuite/-/blob/master/lalsimulation/lib/LALSimInspiral.c#L3023
-            if delta_f==0.: # This would never be the case, if frequency array is set up
-                # round length of time domain signal to next power of two
-                pass
-            else:
-                chirplen = 2 * f_nyquist / delta_f
-                if chirplen < lal_hh_plus.data.length: # This number should be h_plus.data.length
-                    logging.warning('Specified frequency interval of %g Hz is too large for a chirp'+\
-                                    'of duration %g s with Nyquist frequency %g Hz.'+\
-                                    'The inspiral will be truncated.')
-
-            # Step 3. Resizing the time-domain waveform to match some criteria above
-            lal.ResizeREAL8TimeSeries(lal_hh_plus,
-                                      int(lal_hh_plus.data.length - chirplen), int(chirplen))
-            lal.ResizeREAL8TimeSeries(lal_hh_cross,
-                                      int(lal_hh_cross.data.length - chirplen), int(chirplen))
-
-        # FFT STAGE
-        lal_hhf_plus = fft.fft_lal_timeseries(lal_hh_plus, delta_f)
-        lal_hhf_cross = fft.fft_lal_timeseries(lal_hh_plus, delta_f)
-
-        #new_frequencyvector = np.arange(0, lal_hhf_plus.deltaF*lal_hhf_plus.data.length, lal_hhf_plus.deltaF)
-        #new_delta_f = lal_hhf_plus.deltaF
-        print('HERE, check if delta_f is replaced: it should not be the case if we correctly truncated waveform above.')
-
-        # At this stage, this is basically frequency-domain waveform out of LAL
-
-        # To regular numpy array
-        #hf_plus_out = lal_hhf_plus.data.data
-        #hf_cross_out = lal_hhf_cross.data.data
-
-
-        # ==== UTILS === : these are copied from LALTD_Waveform
-        # FROM _update_frequency_range_indices()
-        idx_low = int(f_min / delta_f) #int(f_min / delta_f)
-        idx_high = int(f_max / delta_f)
-        # FROM _lal_fd_strain_adjust_frequency_range()
-        hf_cross_out = lal_hhf_cross.data.data[idx_low:idx_high+1]
-        hf_plus_out = lal_hhf_plus.data.data[idx_low:idx_high+1]
-        #new_frequencyvector = new_frequencyvector[idx_low:idx_high+1]
-
-        # FROM _lal_fd_phase_correction_by_epoch_and_df()
-        dt_correction = 1./delta_f #+ (lal_hhf_plus.epoch.gpsSeconds + lal_hhf_plus.epoch.gpsNanoSeconds * 1e-9)
-        hf_plus_out *= np.exp(-1j * 2 * np.pi * dt_correction * np.squeeze(frequencyvector))
-        hf_cross_out *= np.exp(-1j * 2 * np.pi * dt_correction * np.squeeze(frequencyvector))
-
-        # _fd_phase_correction_geocent_time(): can be skipped??
-        # I think we already corrected by geocent time...
-        phi_in = np.exp(1.j*(2*np.squeeze(frequencyvector)*np.pi*geocent_time))
-        hfp = phi_in * np.conjugate(hf_plus_out)  # it's already multiplied by the phase
-        hfc = phi_in * np.conjugate(hf_cross_out)
-
-        # FROM _fd_gwfish_output_format()
-        hfp = hfp[:, np.newaxis] #hf_plus_out[:, np.newaxis]
-        hfc = hfc[:, np.newaxis] # hf_cross_out[:, np.newaxis]
-        return np.hstack((hfp, hfc)), frequencyvector # new_frequencyvector[:,np.newaxis]
-
-        # =================================================================== #
-
-        ## OLD!! FFT PROCEDURE (REPLACED BY ABOVE)
-
-        ## Zero-padding data at the merger, not to erase a merger with a window
-        #fft_roll_off = 0.2
-        #zeropad_tt = np.arange(tt[-1] + dt, tt[-1] + dt + fft_roll_off, dt)
-        #zeropad_hh = np.repeat(0, len(zeropad_tt))
-        #tt = np.append(tt, zeropad_tt)
-        #hh = np.append(hh, zeropad_hh)
-
-        ## Fourier transforming time-domain strain
-        ##hh_tilde, ff = fft(hh, dt, tt[0], tt[-1], roll_off=fft_roll_off)
-        ## Minus sign following equations 2.5 and 2.6 from IMRPhenomXPHM paper,
-        ## so that im matches exactly h_cross
-        #hh_plus_tilde, ff = fft(np.real(hh), dt, tt[0], tt[-1], roll_off=fft_roll_off)
-        #hh_cross_tilde, ff = fft(np.imag(hh), dt, tt[0], tt[-1], roll_off=fft_roll_off)
-        ##print('Warning! Check hx convention')
-
-        ## Matching user-defined frequencies
-        ##tck_re = interpolate.splrep(ff, np.real(hh_tilde), s=0)
-        ##tck_im = interpolate.splrep(ff, np.imag(hh_tilde), s=0)
-        #tck_plus_re = interpolate.splrep(ff, np.real(hh_plus_tilde), s=0)
-        #tck_plus_im = interpolate.splrep(ff, np.imag(hh_plus_tilde), s=0)
-        #tck_cross_re = interpolate.splrep(ff, np.real(hh_cross_tilde), s=0)
-        #tck_cross_im = interpolate.splrep(ff, np.imag(hh_cross_tilde), s=0)
-        #hh_tilde_plus_re = interpolate.splev(frequencyvector, tck_plus_re, der=0)
-        #hh_tilde_plus_im = interpolate.splev(frequencyvector, tck_plus_im, der=0)
-        #hh_tilde_cross_re = interpolate.splev(frequencyvector, tck_cross_re, der=0)
-        #hh_tilde_cross_im = interpolate.splev(frequencyvector, tck_cross_im, der=0)
-
-        ##hh_tilde = hh_tilde_re + 1j * hh_tilde_im
-
-        #hf_plus_out = hh_tilde_plus_re + 1j*hh_tilde_plus_im
-        #hf_cross_out = hh_tilde_cross_re + 1j*hh_tilde_cross_im
-
-        # =================================================================== #
-        # OLD (REPLACED BY ABOVE)
-        ## BORIS: weird Bilby correction: this is 100% needed to match complex phase with frequency-domain waveforms.
-        ## Not doing so introduces extremely low mass errors!
-        #delta_f = frequencyvector[1,0] - frequencyvector[0,0]
-        #dt = 1. / delta_f #+ geocent_time
-        #hf_plus_out *= np.exp(-1j * 2 * np.pi * dt * frequencyvector)
-        #hf_cross_out *= np.exp(-1j * 2 * np.pi * dt * frequencyvector)
-
-        ## Add initial 2pi*f*tc - phic - pi/4 to phase
-        #phi_in = np.exp(1.j*(2*frequencyvector*np.pi*geocent_time))
-
-        #hp = phi_in * np.conjugate(h_plus_out)  # it's already multiplied by the phase
-        #hc = phi_in * np.conjugate(h_cross_out)
-
-        #polarizations = np.hstack((hp, hc)) # original, gwsurrogate has already inverted hc because it gives hp-ihc
-        #print('Warning: inverting hx in LAL caller')
-
-        #return np.hstack((h_plus_out, h_cross_out))
-
-    else:
-        raise NotImplementedError('Frequency-domain surrogate waveforms are not implemented yet.')
-        # The code below should work, but not tested
-        tt, hh, dyn = sur(q, chiA, chiB, freqs=frequencyvector, f_ref=f_ref, ellMax=ellMax, M=M_tot, dist_mpc=luminosity_distance,
-                          inclination=iota, phi_ref=phase, units='mks')

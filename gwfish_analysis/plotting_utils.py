@@ -19,14 +19,24 @@ def plot_waveform(waveform_obj, plot_name, fisco):
   fig, axs = plt.subplots(2,4, figsize=(20, 10), dpi=80)
   # Time-domain
   if hasattr(waveform_obj, 'lal_time_ht_plus'):
-    axs[0,0].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+', color=co, linestyle=ls)
-    axs[0,0].set_xlim([-0.01,0.01])
-    axs[1,0].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx', color=co, linestyle=ls)
-    axs[1,0].set_xlim([-0.15,0.15])
-    axs[0,1].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+', color=co, linestyle=ls)
+    htp = waveform_obj._lal_ht_plus.data.data
+    htc = waveform_obj._lal_ht_cross.data.data
+    tt = waveform_obj.lal_time_ht_plus
+  elif hasattr(waveform_obj, 'time_domain_strain'):
+    htp = waveform_obj.time_domain_strain[:,0]
+    htc = waveform_obj.time_domain_strain[:,1]
+    tt = waveform_obj.timevector
+  else:
+    htp, htc = None, None
+  if htp is not None:
+    axs[0,0].plot(tt, htp, label='h+', color=co, linestyle=ls)
+    #axs[0,0].set_xlim([-0.01,0.01])
+    axs[1,0].plot(tt, htc, label='hx', color=co, linestyle=ls)
+    #axs[1,0].set_xlim([-0.15,0.15])
+    axs[0,1].plot(tt, htp, label='h+', color=co, linestyle=ls)
     #axs[0,1].set_xlim([-10,-1])
-    axs[1,1].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx', color=co, linestyle=ls)
-    axs[1,1].set_xlim([waveform_obj.lal_time_ht_cross[0],waveform_obj.lal_time_ht_cross[0]+100])
+    axs[1,1].plot(tt, htc, label='hx', color=co, linestyle=ls)
+    axs[1,1].set_xlim([tt[0],tt[0]+100])
   ## Frequency-domain
   axs[0,2].loglog(waveform_obj.frequencyvector, np.real(hf[:,0]), label='Re(h+)', color=co, linestyle=ls)
   #axs[0,2].set_xlim([f_start + 10,f_start + 20])

@@ -91,9 +91,10 @@ def log_z_alternative_model(parameter, value, cov, mean, invcov=None):
 #pop_file='../GWFish/injections/CBC_pop.hdf5'
 #pop_file = '/home/bgonchar/GWFish/injections/CBC_pop.hdf5'
 #pop_file = '/home/bgonchar/pops_gwmem_2022/GWTC-like_population_20230314.hdf5'
-pop_file = '/home/bgonchar/pops_gwmem_2022/pop_max_o3_bbh_only_20230504.hdf5'
+#pop_file = '/home/bgonchar/pops_gwmem_2022/pop_max_o3_bbh_only_20230504.hdf5'
+pop_file = '/home/bgonchar/pops_gwmem_2022/LISA_test_BBH_20230511.hdf5'
 pop_id='BBH'
-detectors_ids=['CE1']
+detectors_ids=['LISA']
 networks='[[0]]'
 config='/home/bgonchar/gwmem_2022/gwfish_analysis/detectors/gwfish_detectors_et_10_1024Hz.yaml'
 #config='/home/bgonchar/GWFish/GWFish/detectors.yaml'
@@ -170,12 +171,13 @@ parameters = pd.read_hdf(pop_file)
 #other_waveform = 'nrsur_NRSur7dq2'
 #other_waveform = 'IMRPhenomTPHM'
 #other_waveform = 'NRHybSur3dq8'
-waveform_models = ['IMRPhenomXPHM']
+#waveform_models = ['IMRPhenomXPHM']
 #waveform_models = ['IMRPhenomXPHM', 'IMRPhenomD']
 #waveform_models = ['IMRPhenomD', 'IMRPhenomD']
 #waveform_models = ['IMRPhenomD', 'NRHybSur3dq8']
 #waveform_models = ['IMRPhenomXPHM', 'IMRPhenomD', 'IMRPhenomPv2']
 #waveform_models = ['NRHybSur3dq8']
+waveform_models = ['NRHybSur3dq8','IMRPhenomXPHM']
 #waveform_models = ['IMRPhenomXPHM', 'IMRPhenomXPHM']
 #waveform_models = ['IMRPhenomXPHM','IMRPhenomTPHM']
 #waveform_models = ['IMRPhenomTPHM', 'IMRPhenomXPHM']
@@ -192,6 +194,7 @@ waveform_models = ['IMRPhenomXPHM']
 #waveform_models = ['IMRPhenomXPHM', 'IMRPhenomXPHM', 'IMRPhenomTPHM', 'IMRPhenomTPHM', 'NRHybSur3dq8', 'NRHybSur3dq8']
 #waveform_models = ['IMRPhenomXPHM', 'IMRPhenomTPHM', 'NRHybSur3dq8', 'SEOBNRv4PHM']
 #waveform_models = ['IMRPhenomD']
+#waveform_models = ['IMRPhenomTPHM']
 colors = ['red', 'green', 'blue', 'purple', 'orange', 'brown']
 linestyles = ['-','--',':', '-','--',':']
 network = {}
@@ -201,9 +204,11 @@ np.random.seed(0)
 #time_domain = [False, True]
 #sph_modes = [False, False]
 
-waveform_class = [gw.waveforms.LALFD_Waveform]
+#waveform_class = [gw.waveforms.LALFD_Waveform]
 #waveform_class = [gu.LALTD_SPH_Memory]
 #waveform_class = [gu.LALTD_SPH_Waveform]
+#waveform_class = [gu.NRSurSPH_Memory]
+waveform_class = [gu.NRSurSPH_Memory, gw.waveforms.LALFD_Waveform]
 #waveform_class = [gw.waveforms.LALTD_Waveform]
 #waveform_class = [gw.waveforms.LALFD_Waveform]
 #waveform_class = [gw.waveforms.LALFD_Waveform, gw.waveforms.LALFD_Waveform]
@@ -259,55 +264,75 @@ for kk in tqdm(range(len(parameters))):
             data_params = {
                               'frequencyvector': network[new_key].detectors[dd].frequencyvector,
                               #'frequency_mask': frequency_mask,
-                              #'memory_contributions': 'J_E, J_J', # J_E, J_J
-                              'time_domain_f_min': 9.0,
-                              'f_ref': 20.
+                              'memory_contributions': '', #J_E, J_J', # J_E, J_J
+                              #'time_domain_f_min': 9.0,
+                              #'f_ref': 20.,
+                              'time_domain_f_min': 1/2**13,
+                              'f_ref': 2e-4,
                           }
             waveform_obj = wc(wm, parameter_values, data_params)
             waveform_objects[new_key] = waveform_obj
-            try:
-                waves[new_key] = waveform_obj()
-                t_of_f = waveform_obj.t_of_f
-                #network[wm].detectors[dd].frequencyvector = frequencyvector
-    
-                #print('Processing', wm, '. Mismatch with IMRPhenomXPHM (real, imag): ', mismatch(waves[wm],waves[ref_model]).real, mismatch(waves[wm],waves[ref_model]).imag)
-    
-                signal = gw.detection.projection(parameter_values, network[new_key].detectors[dd], waves[new_key], t_of_f)
-                #if wm == 'nrsur_NRHybSur3dq8':
-                #    import ipdb; ipdb.set_trace()
-                #SNRs = gw.detection.SNR(network[wm].detectors[dd], signal, duty_cycle=duty_cycle)
-                #networkSNR_sq += np.sum(SNRs ** 2)
-                #network[wm].detectors[dd].SNR[kk] = np.sqrt(np.sum(SNRs ** 2))
-    
-                network[new_key].detectors[dd].fisher_matrix[kk, :, :] = np.zeros((len(fisher_parameters),len(fisher_parameters)))
-                if calculate_errors:
-                    fm_obj = gw.fishermatrix.FisherMatrix(waveform_obj, parameter_values, fisher_parameters, network[new_key].detectors[dd])
+            #waveform_obj()
+            #try:
+            waves[new_key] = waveform_obj()
+            #import ipdb; ipdb.set_trace()
+            t_of_f = waveform_obj.t_of_f
+            if network[new_key].detectors[0].name=='LISA' and wc==gu.NRSurSPH_Memory:
+                network[new_key].detectors[dd].frequencyvector = waveform_obj.frequencyvector[:,np.newaxis]
+                network[new_key].detectors[dd].frequency_mask = np.squeeze(network[new_key].detectors[dd].frequencyvector <= 6.5*waveform_obj.fisco)
+                # For LISA, I reset frequency vector
 
-                    network[new_key].detectors[dd].fisher_matrix[kk, :, :] += fm_obj.fm
-                    #fm_obj.derivative.waveform_object._lal_hf_cross = 1.#None
-                    #fm_obj.derivative.waveform_object._lal_hf_plus = 1.#None
-                    #fm_obj.derivative.waveform_object._params_lal = 1.#None
-                    #import ipdb; ipdb.set_trace()
-                    #with open('test_pickle.pkl', 'wb') as fobj:
-                    #    pickle.dump(fm_obj, fobj)
-                    try:
-                        errors[new_key], _ = gw.fishermatrix.invertSVD(network[new_key].detectors[dd].fisher_matrix[kk, :, :])
-                    except:
-                        print('inverSVD error, injection, ',kk,', waveform ',new_key,', detector ',dd)
-            except:
-                print('Waveform evaluation error, injection, ',kk,', waveform ',new_key,', detector ',dd)
+            #print('Processing', wm, '. Mismatch with IMRPhenomXPHM (real, imag): ', mismatch(waves[wm],waves[ref_model]).real, mismatch(waves[wm],waves[ref_model]).imag)
+    
+            signal = gw.detection.projection(parameter_values, network[new_key].detectors[dd], waves[new_key], t_of_f)
+            #if wm == 'nrsur_NRHybSur3dq8':
+            #    import ipdb; ipdb.set_trace()
+            SNRs = gw.detection.SNR(network[new_key].detectors[dd], signal, duty_cycle=duty_cycle)
+            networkSNR_sq += np.sum(SNRs ** 2)
+            print('SNRs',SNRs)
+            #network[wm].detectors[dd].SNR[kk] = np.sqrt(np.sum(SNRs ** 2))
+    
+            network[new_key].detectors[dd].fisher_matrix[kk, :, :] = np.zeros((len(fisher_parameters),len(fisher_parameters)))
+
+            if calculate_errors:
+                fm_obj = gw.fishermatrix.FisherMatrix(waveform_obj, parameter_values, fisher_parameters, network[new_key].detectors[dd])
+
+                network[new_key].detectors[dd].fisher_matrix[kk, :, :] += fm_obj.fm
+                #fm_obj.derivative.waveform_object._lal_hf_cross = 1.#None
+                #fm_obj.derivative.waveform_object._lal_hf_plus = 1.#None
+                #fm_obj.derivative.waveform_object._params_lal = 1.#None
+                #import ipdb; ipdb.set_trace()
+                #with open('test_pickle.pkl', 'wb') as fobj:
+                #    pickle.dump(fm_obj, fobj)
+                try:
+                    errors[new_key], _ = gw.fishermatrix.invertSVD(network[new_key].detectors[dd].fisher_matrix[kk, :, :])
+                except:
+                    print('inverSVD error, injection, ',kk,', waveform ',new_key,', detector ',dd)
+            #except:
+            #    print('Waveform evaluation error, injection, ',kk,', waveform ',new_key,', detector ',dd)
 
         f_start, f_end = network[new_key].detectors[dd].frequencyvector[0], network[new_key].detectors[dd].frequencyvector[-1]
         # Time-domain
-        if hasattr(waveform_obj, 'lal_time_ht_plus'):
-            axs[0,0].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+:'+new_key, color=co, linestyle=ls)
-            axs[0,0].set_xlim([-0.01,0.01])
-            axs[1,0].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx:'+new_key, color=co, linestyle=ls)
-            axs[1,0].set_xlim([-0.01,0.01])
-            axs[0,1].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+:'+new_key, color=co, linestyle=ls)
+        if hasattr(waveform_obj, 'lal_time_ht_plus') or hasattr(waveform_obj, '_ht_plus'):
+            if hasattr(waveform_obj, 'lal_time_ht_plus'):
+                htp = waveform_obj._lal_ht_plus.data.data
+                htc = waveform_obj.lal_time_ht_cross
+                timevp = waveform_obj.lal_time_ht_plus
+                timevc = waveform_obj.lal_time_ht_cross
+            else:
+                htp = waveform_obj.time_domain_strain[:,0]
+                htc = waveform_obj.time_domain_strain[:,1]
+                timevp = waveform_obj.timevector
+                timevc = waveform_obj.timevector
+
+            axs[0,0].plot(timevp, htp, label='h+:'+new_key, color=co, linestyle=ls)
+            #axs[0,0].set_xlim([-0.01,0.01])
+            axs[1,0].plot(timevc, htc, label='hx:'+new_key, color=co, linestyle=ls)
+            #axs[1,0].set_xlim([-0.01,0.01])
+            axs[0,1].plot(timevp, htp, label='h+:'+new_key, color=co, linestyle=ls)
             #axs[0,1].set_xlim([-10,-1])
-            axs[1,1].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx:'+new_key, color=co, linestyle=ls)
-            axs[1,1].set_xlim([waveform_obj.lal_time_ht_cross[0],waveform_obj.lal_time_ht_cross[0]+100])
+            axs[1,1].plot(timevc, htc, label='hx:'+new_key, color=co, linestyle=ls)
+            #axs[1,1].set_xlim([waveform_obj.lal_time_ht_cross[0],waveform_obj.lal_time_ht_cross[0]+100])
         # Frequency-domain
         if not new_key in waves:
             continue
@@ -378,7 +403,7 @@ for kk in tqdm(range(len(parameters))):
     #plt.savefig('../out_gwmem_2022/waveform_err_comparison.png')
     #plt.close()
     
-    if np.any(['Memory' in kk for kk in waveform_objects.keys()]):
+    if np.any(['Memory' in kk for kk in waveform_objects.keys()]) and data_params['memory_contributions']!='':
         fig, axs = plt.subplots(2,2, figsize=(20, 10), dpi=80)
         for wok, wo in waveform_objects.items():
             if 'Memory' in wok:
