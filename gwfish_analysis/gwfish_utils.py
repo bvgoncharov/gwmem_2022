@@ -72,6 +72,8 @@ def parse_commandline():
                       default=1, type=int)
     parser.add_option("-M", "--mem_sim", help="Memory terms to include",
                       default='J_E, J_J', type=str)
+    parser.add_option("-N", "--mem_neg_modes", help="Mem., pass neg. modes",
+                      default=1, type=int)
     parser.add_option("-e", "--j_e",
                       help="J_E multiplicator, disp. memory (between 0 and 1)",
                       default=0., type=float)
@@ -80,6 +82,8 @@ def parse_commandline():
                       default=0., type=float)
     # Post-processing only
     parser.add_option("-g", "--noise", help="0 noise off, otherwise N realizations", \
+                      default=0, type=int)
+    parser.add_option("-G", "--randomize_mem_pe", help="On/off noise for saved memory covariance matrices", \
                       default=0, type=int)
     parser.add_option("-t", "--svd_threshold", help="SVD inversion",  default=1e-10,
                       type=float)
@@ -273,6 +277,17 @@ def fft_wrapper(ht, timevector, delta_t, f_min, f_max, geocent_time):
     hf = phi_in * np.conjugate(hf)
  
     return hf, frequencyvector
+
+# Gaussian noise generation
+
+def gaussian_noise_fd(psd, delta_f, n_realiz=1):
+    """
+    Based on pycbc.noise.gaussian.frequency_noise_from_psd
+    """
+    sigma = 0.5 * (psd / delta_f) ** (0.5)
+    noise_re = np.random.normal(0, sigma, (len(sigma),n_realiz))
+    noise_im = np.random.normal(0, sigma, (len(sigma),n_realiz))
+    return noise_re + 1j * noise_im
 
 # For conversion to/from dimensionless units
 def amp_rescale_coeff(dist, m_tot):
@@ -489,6 +504,7 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
             # If m<0 modes are not in the dictionary of modes, we calculate
             # them from m>0 modes
             if fake_neg_modes and mm>0:
+                print('BG: faking negative modes td_strain_from_sph')
                 yl_m = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'],
                                                         self.gw_params['phase'], -2, ll, -mm)
                 self._lal_ht_plus.data.data += np.real(yl_m * (-1)**(ll) * np.conjugate(self._lal_hlms[(ll, mm)].data.data))
@@ -636,7 +652,7 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
         dimensionless units.
         """
         return amp_rescale_coeff(self.gw_params['luminosity_distance'], \
-                                 self.m_tot)
+                                 self.m_tot*(1+self.gw_params['redshift']))
 
     @property
     def t_rescale(self):
@@ -644,7 +660,7 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
         A multiplicative coefficient to convert time array corresponding to 
         GW time series data to/from dimensionless units.
         """
-        return time_rescale_coeff(self.m_tot)
+        return time_rescale_coeff(self.m_tot*(1+self.gw_params['redshift']))
 
     @property
     def fd_memory(self):
@@ -671,6 +687,7 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
                 self.J_J[0] += np.real(ylm * _strain_lm)
                 self.J_J[1] -= np.imag(ylm * _strain_lm)
                 if fake_neg_modes and mm>0:
+                    print('BG: faking negative modes J_J')
                     yl_m = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], self.gw_params['phase'], -2, lm[0], -lm[1])
                     self.J_J[0] += np.real(yl_m * (-1)**(ll) * np.conjugate(_strain_lm))
                     self.J_J[1] -= np.imag(yl_m * (-1)**(ll) * np.conjugate(_strain_lm))
@@ -686,6 +703,7 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
                 self.J_E[0] += np.real(ylm * _strain_lm)
                 self.J_E[1] -= np.imag(ylm * _strain_lm)
                 if fake_neg_modes and mm>0:
+                    print('BG: faking negative modes J_E')
                     yl_m = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], self.gw_params['phase'], -2, lm[0], -lm[1])
                     self.J_E[0] += np.real(yl_m * (-1)**(ll) * np.conjugate(_strain_lm))
                     self.J_E[1] -= np.imag(yl_m * (-1)**(ll) * np.conjugate(_strain_lm))
@@ -820,13 +838,23 @@ class LALTD_SPH_Memory(LALTD_SPH_Waveform):
 
     @property
     def sxs_hlms_du(self):
-        """ Strain SPH modes converted to SXS format. In dimensionless units (du), all possible modes. """
+        """
+        Strain SPH modes converted to SXS format. In dimensionless units (du), 
+        all possible modes.
+
+        Update: negative modes need to be set to zeros for memory calculation?
+        Otherwise, the amplitude becomes higher than expected.
+        """
         if self._sxs_hlms_du is None:
             out = []
             for (ll,mm) in self.possible_modes:
                 if (ll,mm) in self._lal_hlms.keys():
+                    ## Updaet: m<0 modes are necessary
+                    #if mm>=0 or self.data_params['mem_neg_modes']:
                     out.append(self._lal_hlms[(ll,mm)].data.data / \
                                self.amp_rescale)
+                    #else:
+                    #  out.append(np.zeros(self._lal_hlms[(ll,mm)].data.length))
                 else:
                     raise ValueError('This should not happen, all cases are handled before in _add_missing_lms_in_lal_hlms')
                 #elif (ll,-mm) in self._lal_hlms.keys() and mm<0:
@@ -1171,6 +1199,7 @@ class NRSurSPH_Memory(wf.Waveform):
             # If m<0 modes are not in the dictionary of modes, we calculate
             # them from m>0 modes
             if fake_neg_modes and mm>0:
+                print('BG: faking negative modes from SPH du')
                 yl_m = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'],
                                                         self.gw_params['phase'], -2, ll, -mm)
                 self._ht_plus += np.real(yl_m * (-1)**(ll) * np.conjugate(self._time_domain_sph_du[(ll, mm)]) * self.amp_rescale)

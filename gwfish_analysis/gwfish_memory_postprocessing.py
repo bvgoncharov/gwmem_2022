@@ -8,6 +8,8 @@ import lal
 import numpy as np
 import pandas as pd
 
+import matplotlib
+matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from chainconsumer import ChainConsumer
 
@@ -48,9 +50,9 @@ def model_label(am):
 
 #all_detectors = ['CE1','ET']
 #all_detectors = ['ET','CE1']
-all_detectors = ['ET','CE1','LLO','LHO','VIR','VOY']
+all_detectors = ['ET']#,'CE1','LLO','LHO','VIR','VOY']
 #detector_combinations = [['ET'],['ET','CE1']]
-detector_combinations = [['ET'],['ET','CE1'],['LLO','LHO','VIR'],['VOY','VIR']]
+detector_combinations = [['ET']]#,['ET','CE1'],['LLO','LHO','VIR'],['VOY','VIR']]
 #all_detectors = ['LISA']
 #detector_combinations = [['LISA']]
 
@@ -97,7 +99,11 @@ else:
 no_result = []
 logz_detcombs = {''.join(dtcomb): pd.DataFrame(columns=amod_labels+extra_labels,index=parameters.iloc[range_simulations].index, dtype=np.float64) for dtcomb in detector_combinations}
 #list_JEJJ_cov_dicts = {''.join(dtcomb): [] for dtcomb in detector_combinations}
-jejj_covs = {''.join(dtcomb): pd.DataFrame(columns=['JE','JJ','JEJJ'],index=parameters.iloc[range_simulations].index, dtype=np.float64) for dtcomb in detector_combinations}
+if opts.randomize_mem_pe:
+    jejj_columns_covs = ['JE','JJ','JEJJ','dJE','dJJ']
+else:
+    jejj_columns_covs = ['JE','JJ','JEJJ']
+jejj_covs = {''.join(dtcomb): pd.DataFrame(columns=jejj_columns_covs,index=parameters.iloc[range_simulations].index, dtype=np.float64) for dtcomb in detector_combinations}
 
 for kk in tqdm.tqdm(range_simulations): #tqdm.tqdm(range(len(parameters))):
   kk_idx = parameters.index[kk]
@@ -111,6 +117,7 @@ for kk in tqdm.tqdm(range_simulations): #tqdm.tqdm(range(len(parameters))):
     no_result.append(kk)
     print('No result ', kk)
     continue
+
 
   # Saving the Fisher matrix prior to frequency range cut, for inspection
   fm_old = fm_object.fm
@@ -181,44 +188,51 @@ for kk in tqdm.tqdm(range_simulations): #tqdm.tqdm(range(len(parameters))):
     em_comb[dtcomb_label], _ = gw.fishermatrix.invertSVD(fm_comb[dtcomb_label].to_numpy(), thresh=svd_threshold)
     em_comb[dtcomb_label] = pd.DataFrame(em_comb[dtcomb_label], columns=fisher_parameters, index=fisher_parameters)
 
-    # Saving covariance
-    jejj = em_comb[dtcomb_label][["J_E","J_J"]].loc[["J_E","J_J"]]
+    # Saving covariance (works only for one detector in a combination)
+    jejj = fm_comb[dtcomb_label][["J_E","J_J"]].loc[["J_E","J_J"]]
     jejj_covs[dtcomb_label]['JE'].loc[kk_idx] = jejj['J_E'].loc['J_E']
     jejj_covs[dtcomb_label]['JJ'].loc[kk_idx] = jejj['J_J'].loc['J_J']
     jejj_covs[dtcomb_label]['JEJJ'].loc[kk_idx] = jejj['J_E'].loc['J_J']
+    if opts.randomize_mem_pe:
+        fd_noise = gu.gaussian_noise_fd(network.detectors[0].components[0].Sn(network.detectors[0].frequencyvector),waveform_obj.delta_f,n_realiz=len(network.detectors[0].components))
+        n_s = np.array([gw.auxiliary.scalar_product(fd_noise,fm_object.derivative.with_respect_to(pp),network.detectors[0]) for pp in fisher_parameters])
+        offsets = np.dot(em_comb[dtcomb_label],n_s[:,0])
+        jejj_covs[dtcomb_label]['dJE'].loc[kk_idx] = offsets[-2]
+        jejj_covs[dtcomb_label]['dJJ'].loc[kk_idx] = offsets[-1]
 
     #list_JEJJ_cov_dicts[dtcomb_label].append(em_comb[dtcomb_label][["J_E","J_J"]].loc[["J_E","J_J"]])
 
-    log_z_true = gu.log_z(em_comb[dtcomb_label], 0.0)
-    # Models where we fix one parameter
-    log_zs = {}
-    newmu = {}
-    newcov = {}
-    newmu_2 = {}
-    newcov_2 = {}
-    for am, labm, labe in zip(alternative_models,amod_labels,extra_labels):
+    ### === UNCOMMENT 3 # BELOW === ###
+    ###log_z_true = gu.log_z(em_comb[dtcomb_label], 0.0)
+    #### Models where we fix one parameter
+    ###log_zs = {}
+    ###newmu = {}
+    ###newcov = {}
+    ###newmu_2 = {}
+    ###newcov_2 = {}
+    ###for am, labm, labe in zip(alternative_models,amod_labels,extra_labels):
 
-      if '_' in labm: # This indicates a noise realization
-        true_values = pd.DataFrame(data=np.random.multivariate_normal(np.array([parameter_values[key] for key in fisher_parameters]), em_comb[dtcomb_label], size=1)[0,:], index=fisher_parameters)
-      else:
-        true_values = pd.DataFrame(data=np.array([parameter_values[key] for key in fisher_parameters]), index=fisher_parameters)
+    ###  if '_' in labm: # This indicates a noise realization
+    ###    true_values = pd.DataFrame(data=np.random.multivariate_normal(np.array([parameter_values[key] for key in fisher_parameters]), em_comb[dtcomb_label], size=1)[0,:], index=fisher_parameters)
+    ###  else:
+    ###    true_values = pd.DataFrame(data=np.array([parameter_values[key] for key in fisher_parameters]), index=fisher_parameters)
 
-      log_zs[labm], newcov[labm], newmu[labm], loglr = gu.log_z_alternative_model(am[0], am[1], em_comb[dtcomb_label], true_values, invcov=fm_comb[dtcomb_label])
-      extra = extra_model(am, opts)
+    ###  log_zs[labm], newcov[labm], newmu[labm], loglr = gu.log_z_alternative_model(am[0], am[1], em_comb[dtcomb_label], true_values, invcov=fm_comb[dtcomb_label])
+    ###  extra = extra_model(am, opts)
 
-      if extra is not None:
-        try:
-            newfisher, _ = gw.fishermatrix.invertSVD(newcov[labm], thresh=svd_threshold)
-            newfisher_matrix = pd.DataFrame(newfisher, columns=newcov[labm].columns, index=newcov[labm].index)
-            log_zs[labe], newcov_2[labe], newmu_2[labe], loglr_2 = gu.log_z_alternative_model(extra[0], extra[1], newcov[labm], newmu[labm], invcov=newfisher_matrix, log_l_max=loglr)
-        except:
-            log_zs[labe], newcov_2[labe], newmu_2[labe], loglr_2 = np.nan, np.nan, np.nan, np.nan
-            print('SVD error in extra memory parameter:', am, extra, kk, dtcomb)
+    ###  if extra is not None:
+    ###    try:
+    ###        newfisher, _ = gw.fishermatrix.invertSVD(newcov[labm], thresh=svd_threshold)
+    ###        newfisher_matrix = pd.DataFrame(newfisher, columns=newcov[labm].columns, index=newcov[labm].index)
+    ###        log_zs[labe], newcov_2[labe], newmu_2[labe], loglr_2 = gu.log_z_alternative_model(extra[0], extra[1], newcov[labm], newmu[labm], invcov=newfisher_matrix, log_l_max=loglr)
+    ###    except:
+    ###        log_zs[labe], newcov_2[labe], newmu_2[labe], loglr_2 = np.nan, np.nan, np.nan, np.nan
+    ###        print('SVD error in extra memory parameter:', am, extra, kk, dtcomb)
 
-    #logz_detcombs[dtcomb_label].append(log_zs)
-    logz_detcombs[dtcomb_label].loc[kk_idx] = log_zs
+    ####logz_detcombs[dtcomb_label].append(log_zs)
+    ###logz_detcombs[dtcomb_label].loc[kk_idx] = log_zs
 
-  # Corner plot
+  ## Corner plot
   #cc = ChainConsumer()
   #for dtcomb in detector_combinations:
   #  dtcomb_label = ''.join(dtcomb)
@@ -231,7 +245,7 @@ for kk in tqdm.tqdm(range_simulations): #tqdm.tqdm(range(len(parameters))):
   #plt.savefig(totaldir+namebase+'_'+str(kk)+'_pe.png')
   #plt.close()
 
-  # Plot model misspecification
+  ## Plot model misspecification
   #cc = ChainConsumer()
   #cc.add_chain(chain_sim, parameters=fisher_parameters, name='Correct model, J_E '+str(opts.j_e)+', J_J '+str(opts.j_j))
   #for am, labm, labe in zip(alternative_models, amod_labels, extra_labels):
@@ -239,13 +253,16 @@ for kk in tqdm.tqdm(range_simulations): #tqdm.tqdm(range(len(parameters))):
   #  extra = extra_model(am, opts)
 
   #  if extra is not None:
-  #    cc.add_chain(np.random.multivariate_normal(newmu_2[labm].to_numpy()[:,0], newcov_2[labe],size=10000), parameters=newmu_2[labe].index.to_list(), name=labe+', logBF^true_this='+str(log_z_true - log_zs[labe]))
+  #    cc.add_chain(np.random.multivariate_normal(newmu_2[labe].to_numpy()[:,0], newcov_2[labe],size=10000), parameters=newmu_2[labe].index.to_list(), name=labe+', logBF^true_this='+str(log_z_true - log_zs[labe]))
 
   ## Make a plot
   #cc.configure(usetex=False)
   #fig = cc.plotter.plot()
   #plt.savefig(totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_pe_misspec.png')
   #plt.close()
+
+  del waveform_obj
+  del fm_object
 
   # Save key numbers
   #import ipdb; ipdb.set_trace()
@@ -257,11 +274,15 @@ for kk in tqdm.tqdm(range_simulations): #tqdm.tqdm(range(len(parameters))):
 for dtcomb in detector_combinations:
   dtcomb_label = ''.join(dtcomb)
 
-  logzs_file_name = totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(opts.inj)+'_noise_'+str(opts.noise)+'_logzs.json'
-  print('Saving',logzs_file_name)
-  logz_detcombs[dtcomb_label].to_hdf(logzs_file_name, mode='w', key='root')
+  ### === UNCOMMENT 3 # BELOW === ###
+  ###logzs_file_name = totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(opts.inj)+'_noise_'+str(opts.noise)+'_logzs.json'
+  ###print('Saving',logzs_file_name)
+  ###logz_detcombs[dtcomb_label].to_hdf(logzs_file_name, mode='w', key='root')
 
-  jejj_cov_file_name = totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(opts.inj)+'_covjejj.json'
+  if opts.randomize_mem_pe:
+    jejj_cov_file_name = totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(opts.inj)+'_covjejj_noise.json'
+  else:
+    jejj_cov_file_name = totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(opts.inj)+'_covjejj.json'
   print('Saving',jejj_cov_file_name)
   jejj_covs[dtcomb_label].to_hdf(jejj_cov_file_name, mode='w', key='root')
 

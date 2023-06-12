@@ -66,6 +66,7 @@ for kk in range(opts.inj*opts.num, (opts.inj+1)*opts.num):
                           'memory_contributions': opts.mem_sim, #'J_E, J_J', # J_E, J_J
                           'time_domain_f_min': opts.td_fmin,
                           'f_ref': opts.f_ref,
+                          'mem_neg_modes': opts.mem_neg_modes,
                       }
 
         waveform_obj = waveform_class(opts.waveform, parameter_values, data_params)

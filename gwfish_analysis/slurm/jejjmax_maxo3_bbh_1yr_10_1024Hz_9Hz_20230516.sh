@@ -5,7 +5,7 @@
 #SBATCH --time=0-17
 #SBATCH --mem-per-cpu=5G
 #SBATCH --tmp=8G
-#SBATCH --array=100-199
+#SBATCH --array=0-99
 
 export OMP_NUM_THREADS=1
 

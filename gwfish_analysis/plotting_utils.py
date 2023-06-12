@@ -30,11 +30,11 @@ def plot_waveform(waveform_obj, plot_name, fisco):
     htp, htc = None, None
   if htp is not None:
     axs[0,0].plot(tt, htp, label='h+', color=co, linestyle=ls)
-    #axs[0,0].set_xlim([-0.01,0.01])
+    axs[0,0].set_xlim([-0.5,0.2])
     axs[1,0].plot(tt, htc, label='hx', color=co, linestyle=ls)
-    #axs[1,0].set_xlim([-0.15,0.15])
+    axs[1,0].set_xlim([-0.15,0.15])
     axs[0,1].plot(tt, htp, label='h+', color=co, linestyle=ls)
-    #axs[0,1].set_xlim([-10,-1])
+    axs[0,1].set_xlim([-10,-1])
     axs[1,1].plot(tt, htc, label='hx', color=co, linestyle=ls)
     axs[1,1].set_xlim([tt[0],tt[0]+100])
   ## Frequency-domain

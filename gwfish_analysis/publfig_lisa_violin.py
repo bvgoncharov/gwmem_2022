@@ -55,11 +55,11 @@ postfix = '_NRHybSur3dq8_gu.NRSurSPH_Memory_0.0001_0.0002_999_LISA_logzs.json'
 
 violin_kwargs = {
   'showextrema': False,
-  'bw_method': 0.25,
+  'bw_method': 0.25
 }
 facecolor = '#E39C12'
-edgecolor = '#E39C12'
-linewidth = 0.
+edgecolor = 'black' #'#E39C12'
+linewidth = 0.5# 0.
 alpha = 0.85
 
 # Publication-quality plots
@@ -99,6 +99,7 @@ for lab, labidx, models in zip(labels, label_order, plot_models_top_bottom):
     # Choosing different scales
     if not (lab=='20230518_nom' and mm=='ebms_vs_bms'):
       # Non-log Y scale only where both positive and negative logBFs
+      y_vals_backup = [val for val in y_vals]
       y_vals = [np.log10(val) for val in y_vals]
       axs[ii,labidx].yaxis.set_major_formatter(mticker.StrMethodFormatter("$10^{{{x:.0f}}}$"))
       axs[ii,labidx].axhline(np.log10(5.), color='#f46036', lw=3)
@@ -109,19 +110,41 @@ for lab, labidx, models in zip(labels, label_order, plot_models_top_bottom):
       axs[ii,labidx].set_ylim([-50,10])
       axs[ii,labidx].axhline(0, color='black',lw=0.5)
 
+    # Primary violin plot
     fobj = axs[ii,labidx].violinplot(np.array(y_vals).T, positions=d_ls, **violin_kwargs)
-
-    #fobj = axs[ii,labidx].violinplot(np.array(log_bfs[mm]).T, positions=d_ls, **violin_kwargs)
+    if not (lab=='20230518_nom' and mm=='ebms_vs_bms'):
+      # Secondary violin plot: it will show only quantiles
+      fobj_quantiles = axs[ii,labidx].violinplot(np.array(y_vals).T, positions=d_ls, **violin_kwargs)
+      for pc, yvb in zip(fobj_quantiles["bodies"],y_vals_backup):
+        path_collection = pc.get_paths()[0]
+        path = path_collection.vertices
+        quantiles = np.log10(np.quantile(yvb,[0.05,0.95]))
+        cut_value_low = quantiles[0]
+        cut_value_high = quantiles[1]
+        # Update the y-coordinates of the points below the cut_value
+        path[path[:, 1] < cut_value_low, 1] = cut_value_low
+        path[path[:, 1] > cut_value_high, 1] = cut_value_high
 
     axs[ii,labidx].tick_params(axis='y', labelsize = font['size'])
     axs[ii,labidx].tick_params(axis='x', labelsize = font['size'])
     #axs[ii,labidx].axhline(np.log10(5.), color='#f46036', lw=3)
     #axs[ii,labidx].axhline(np.log10(3.), color='#f46036', linestyle='--')
     for pc in fobj['bodies']:
-      pc.set_facecolor(facecolor)
-      pc.set_edgecolor(edgecolor)
+      if (lab=='20230518_nom' and mm=='ebms_vs_bms'):
+        pc.set_facecolor('#2e294e')
+        pc.set_edgecolor('#2e294e')
+      else:
+        pc.set_facecolor(facecolor)
+        pc.set_edgecolor(edgecolor)
       pc.set_linewidth(linewidth)
       pc.set_alpha(alpha)
+    # Styling for quantiles
+    if not (lab=='20230518_nom' and mm=='ebms_vs_bms'):
+      for pc in fobj_quantiles['bodies']:
+        pc.set_facecolor('none')
+        pc.set_edgecolor('black')
+        pc.set_linewidth(0.5)
+        pc.set_alpha(alpha)
 #plt.legend()
 #ax0.set_xlabel('Luminosity distance [Gpc]')
 axs[0,0].set_title('Poincare Universe',fontdict=font)

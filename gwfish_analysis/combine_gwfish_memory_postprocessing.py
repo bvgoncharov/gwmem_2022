@@ -57,9 +57,9 @@ outdir = '/home/bgonchar/out_gwmem_2022/publ_fig/'
 
 #all_detectors = ['CE1','ET']
 #all_detectors = ['ET','CE1']
-all_detectors = ['ET','CE1','LLO','LHO','VIR','VOY']
+all_detectors = ['ET']#,'CE1','LLO','LHO','VIR','VOY']
 #detector_combinations = [['ET'],['ET','CE1']]
-detector_combinations = [['ET'],['ET','CE1'],['LLO','LHO','VIR'],['VOY','VIR']]
+detector_combinations = [['ET']]#,['ET','CE1'],['LLO','LHO','VIR'],['VOY','VIR']]
 #all_detectors = ['LISA']
 #detector_combinations = [['LISA']]
 
@@ -95,9 +95,9 @@ extra_labels = _extra_labels
 alternative_models = _alternative_models
 
 logz_detcombs = {''.join(dtcomb): pd.DataFrame(columns=amod_labels+extra_labels,index=parameters.index, dtype=np.float64) for dtcomb in detector_combinations}
-jejj_covs = {''.join(dtcomb): pd.DataFrame(columns=['JE','JJ','JEJJ'],index=parameters.index, dtype=np.float64) for dtcomb in detector_combinations}
+jejj_covs = {''.join(dtcomb): pd.DataFrame(columns=['JE','JJ','JEJJ','dJE','dJJ'],index=parameters.index, dtype=np.float64) for dtcomb in detector_combinations}
 
-largest_slurm_index = 9
+largest_slurm_index = 4
 
 # Combining results
 for inj in range(largest_slurm_index+1): #tqdm.tqdm(range(len(parameters))):
@@ -110,7 +110,10 @@ for inj in range(largest_slurm_index+1): #tqdm.tqdm(range(len(parameters))):
     # With noise
     logzs_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(inj)+'_noise_'+str(opts.noise)+'_logzs.json'
 
-    jejj_cov_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(inj)+'_covjejj.json'
+    if opts.randomize_mem_pe:
+      jejj_cov_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(inj)+'_covjejj_noise.json'
+    else:
+      jejj_cov_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(inj)+'_covjejj.json'
 
     logz_temp = pd.read_hdf(logzs_file_name)
     logz_detcombs[dtcomb_label].loc[logz_temp.index] = logz_temp
@@ -124,6 +127,13 @@ for dtcomb in detector_combinations:
   combined_logzs_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_noise_'+str(opts.noise)+'_logzs.json'
   dict_z.to_hdf(combined_logzs_file_name, mode='w', key='root')
   print('Saved:',combined_logzs_file_name)
+  dict_covjejj = jejj_covs[dtcomb_label].iloc[0:(largest_slurm_index+1)*opts.num]
+  if opts.randomize_mem_pe:
+    combined_covjejj_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_covjejj_noise.json'
+  else:
+    combined_covjejj_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_covjejj.json'
+  dict_covjejj.to_hdf(combined_covjejj_file_name, mode='w', key='root')
+  print('Saved:',combined_covjejj_file_name)
 
 # General and universal outlook
 #for dtcomb in detector_combinations:
