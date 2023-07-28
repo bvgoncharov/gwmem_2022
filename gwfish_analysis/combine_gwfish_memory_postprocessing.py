@@ -97,7 +97,7 @@ alternative_models = _alternative_models
 logz_detcombs = {''.join(dtcomb): pd.DataFrame(columns=amod_labels+extra_labels,index=parameters.index, dtype=np.float64) for dtcomb in detector_combinations}
 jejj_covs = {''.join(dtcomb): pd.DataFrame(columns=['JE','JJ','JEJJ','dJE','dJJ'],index=parameters.index, dtype=np.float64) for dtcomb in detector_combinations}
 
-largest_slurm_index = 4
+largest_slurm_index = 49
 
 # Combining results
 for inj in range(largest_slurm_index+1): #tqdm.tqdm(range(len(parameters))):
@@ -115,23 +115,23 @@ for inj in range(largest_slurm_index+1): #tqdm.tqdm(range(len(parameters))):
     else:
       jejj_cov_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(inj)+'_covjejj.json'
 
-    logz_temp = pd.read_hdf(logzs_file_name)
-    logz_detcombs[dtcomb_label].loc[logz_temp.index] = logz_temp
+    #logz_temp = pd.read_hdf(logzs_file_name)
+    #logz_detcombs[dtcomb_label].loc[logz_temp.index] = logz_temp
     jejj_temp = pd.read_hdf(jejj_cov_file_name)
     jejj_covs[dtcomb_label].loc[jejj_temp.index] = jejj_temp
 
 # Save combined results
 for dtcomb in detector_combinations:
   dtcomb_label = ''.join(dtcomb)
-  dict_z = logz_detcombs[dtcomb_label].iloc[0:(largest_slurm_index+1)*opts.num]
-  combined_logzs_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_noise_'+str(opts.noise)+'_logzs.json'
-  dict_z.to_hdf(combined_logzs_file_name, mode='w', key='root')
-  print('Saved:',combined_logzs_file_name)
+  #dict_z = logz_detcombs[dtcomb_label].iloc[0:(largest_slurm_index+1)*opts.num]
+  #combined_logzs_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(largest_slurm_index)+'_noise_'+str(opts.noise)+'_logzs.json'
+  #dict_z.to_hdf(combined_logzs_file_name, mode='w', key='root')
+  #print('Saved:',combined_logzs_file_name)
   dict_covjejj = jejj_covs[dtcomb_label].iloc[0:(largest_slurm_index+1)*opts.num]
   if opts.randomize_mem_pe:
-    combined_covjejj_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_covjejj_noise.json'
+    combined_covjejj_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(largest_slurm_index)+'_covjejj_noise.json'
   else:
-    combined_covjejj_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_covjejj.json'
+    combined_covjejj_file_name = totaldir+namebase+'_'+str((inj+1)*opts.num-1)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(largest_slurm_index)+'_covjejj.json'
   dict_covjejj.to_hdf(combined_covjejj_file_name, mode='w', key='root')
   print('Saved:',combined_covjejj_file_name)
 

@@ -327,7 +327,7 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
                 self.l_max = self.data_params['l_max']
             else:
                 self.l_max = 4
-                logging.warning('Setting l_max to {}'.format(self._l_max))
+                #logging.warning('Setting l_max to {}'.format(self._l_max))
         return self._l_max
 
     @l_max.setter
@@ -496,6 +496,12 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
             # To test modes, not a good idea to use because of possible confusion
             #if ll > self.l_max:
             #    continue
+
+            # If necessary, ignoring even m modes (for psi-phi degeneracy breaking tests)
+            if 'only_odd_m' in self.data_params.keys() and mm%2==0:
+                #print('Skipping m-even mode:', (ll,mm))
+                continue
+
             ylm = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'], # inclination 
                                                     self.gw_params['phase'], -2, ll, mm)
             # LAL: Cross-polarization is the *negative* of the imaginary part
@@ -504,7 +510,7 @@ class LALTD_SPH_Waveform(wf.LALTD_Waveform):
             # If m<0 modes are not in the dictionary of modes, we calculate
             # them from m>0 modes
             if fake_neg_modes and mm>0:
-                print('BG: faking negative modes td_strain_from_sph')
+                #print('BG: faking negative modes td_strain_from_sph')
                 yl_m = lal.SpinWeightedSphericalHarmonic(self.gw_params['iota'],
                                                         self.gw_params['phase'], -2, ll, -mm)
                 self._lal_ht_plus.data.data += np.real(yl_m * (-1)**(ll) * np.conjugate(self._lal_hlms[(ll, mm)].data.data))
