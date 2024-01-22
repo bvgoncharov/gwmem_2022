@@ -1,7 +1,8 @@
 import tqdm
-import h5py # alternative to pd.read_hdf()
 import numpy as np
 import pandas as pd
+
+import h5py # alternative to pd.read_hdf()
 
 from scipy import interpolate
 
@@ -88,7 +89,7 @@ def alternative_hdf_load(pardir):
         # Transposing the data if necessary
         #if block0_values.shape[0] == len(axis1) and block0_values.shape[1] == len(axis0):
         #    block0_values = block0_values.T  # Transpose the data
-
+    
         # Creating a DataFrame
         df = pd.DataFrame(block0_values, index=axis1, columns=axis0)
     return df
@@ -100,7 +101,7 @@ plt.rcParams.update({
   #"font.serif": ["Palatino"],
 })
 font = {'family' : 'serif',
-        'size'   : 20}
+        'size'   : 25}
 
 datadir = '/fred/oz031/mem/gwmem_2022_container/image_content/out_gwmem_2022/pop_max_o3_bbh_only_1yr_20230606_sorted_snrjj/'
 #parameters = pd.read_hdf('/fred/oz031/mem/gwmem_2022_container/image_content/pops_gwmem_2022/pop_max_o3_bbh_only_1yr_20230606_sorted_snrjj.hdf5')
@@ -124,6 +125,8 @@ for ll, true_je, true_jj in zip(labels, true_jes, true_jjs):
   fname_z1 = ll+'_NRHybSur3dq8_gu.LALTD_SPH_Memory_9.0_20.0_9999_ET_200_49_covjejj_noise.json'
   covjejj = read_hdf(datadir+fname)
   covjejj_z1 = read_hdf(datadir+fname_z1)
+  print(covjejj)
+  print(covjejj_z1)
   # Remove NaNs (usually last injections out of 10000, where snr could not be evaluated)
   covjejj_z1 = covjejj_z1.loc[~covjejj_z1.isnull().any(axis=1)]
   print('Number of NaNs: ', 10000-covjejj_z1.shape[0])
@@ -136,7 +139,7 @@ for ll, true_je, true_jj in zip(labels, true_jes, true_jjs):
   prob_je_max_val = pos_je_grid[prob_je_max_idx[0],prob_jj_max_idx[0]]
   prob_jj_max_val = pos_jj_grid[prob_je_max_idx[0],prob_jj_max_idx[0]]
 
-  fig = plt.figure(figsize=(8,6))
+  fig = plt.figure(figsize=(7,5))
   axes = fig.add_subplot(111)
   img1 = plt.imshow(prob,origin='lower',extent=[pos_je.min(),pos_je.max(),pos_jj.min(),pos_jj.max()],cmap=pu.get_continuous_cmap(color_sequence),aspect='auto')
   c_all = plt.contour(pos_je_grid,pos_jj_grid,prob,get_contours(prob),colors='black',linewidths=0.5)
@@ -153,7 +156,9 @@ for ll, true_je, true_jj in zip(labels, true_jes, true_jjs):
   axes.tick_params(axis='x', labelsize = font['size'])
   axes.set_xlim([prob_je_max_val-0.1,prob_je_max_val+0.1])
   axes.set_ylim([prob_jj_max_val-0.75,prob_jj_max_val+0.75])
-  plt.savefig('/fred/oz031/mem/gwmem_2022_container/image_content/out_gwmem_2022/publ_fig/prob_jejj_'+ll+'.pdf')
+  #plt.subplots_adjust(left=0.15, right=0.85)
+  #plt.tight_layout()
+  plt.savefig('/fred/oz031/mem/gwmem_2022_container/image_content/out_gwmem_2022/publ_fig/prob_jejj_'+ll+'_prl.pdf')
   plt.close()
 
   # Here, I need to meshgrid (A_s, A_d) values in (2xN) array
@@ -165,4 +170,4 @@ for ll, true_je, true_jj in zip(labels, true_jes, true_jjs):
 
   # Then, make pyplot contours, or slices along respective A_d,s=1 or 0.
 
-  import ipdb; ipdb.set_trace()
+import ipdb; ipdb.set_trace()
