@@ -1,17 +1,63 @@
 import os
 import tqdm
 import pickle
+import json
+
+import lal
 
 import numpy as np
 import pandas as pd
 
+import matplotlib
+matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 from chainconsumer import ChainConsumer
 
 import gwfish_utils as gu
+import plotting_utils as pu
 import GWFish.modules as gw
 
+def extra_model(am, opts):
+    """
+    There are 4 combinations of J_E and J_J between 0 and 1.
+    By choosing one option for J_E/J_J, we can fix one extra
+    for the opposite, and get all combinations.
+
+    Input: 
+    am: one alternative model, tuple, e.g. ('J_E', 1.0)
+    opts: command line options
+
+    Output: alternative model to am
+    """
+    if am[0]=='J_J' and am[1]==opts.j_j:
+      # JJ right, JE wrong
+      extra = ('J_E', 1 - opts.j_e)
+    elif am[0]=='J_E' and am[1]==opts.j_e:
+      # Both terms right
+      extra = ('J_J', opts.j_j)
+    elif am[0]=='J_J' and am[1]==1-opts.j_j:
+      # JJ wrong, JE right
+      extra = ('J_E', opts.j_e)
+    elif am[0]=='J_E' and am[1]==1-opts.j_e:
+      # Both terms wrong
+      extra = ('J_J', 1 - opts.j_j)
+    else:
+      extra = None
+    return extra
+
+def model_label(am):
+    return am[0].replace('_','')+str(int(am[1]))
+
+#all_detectors = ['CE1','ET']
+#all_detectors = ['ET','CE1']
+all_detectors = ['ET']#,'CE1','LLO','LHO','VIR','VOY']
+#detector_combinations = [['ET'],['ET','CE1']]
+detector_combinations = [['ET']]#,['ET','CE1'],['LLO','LHO','VIR'],['VOY','VIR']]
+#all_detectors = ['LISA']
+#detector_combinations = [['LISA']]
+
 opts = gu.parse_commandline()
+range_simulations = range(opts.inj*opts.num, (opts.inj+1)*opts.num)
 
 popdir, totaldir, namebase = gu.output_names(opts)
 
@@ -22,15 +68,46 @@ parameters = pd.read_hdf(opts.injfile)
 parameters['J_E'] = np.repeat(opts.j_e, len(parameters))
 parameters['J_J'] = np.repeat(opts.j_j, len(parameters))
 
-threshold_SNR = np.array([0., 9.])
+alternative_models = [('J_E', opts.j_e), ('J_E', 1 - opts.j_e), ('J_J', opts.j_j), ('J_J', 1 - opts.j_j)]
+amod_labels = [model_label(am) for am in alternative_models]
+extra_labels = [model_label(am)+model_label(extra_model(am,opts)) for am in alternative_models]
+# Accounting for noise realizations
+_amod_labels = []
+_extra_labels = []
+_alternative_models = []
+for nr in range(opts.noise):
+  _alternative_models += [am for am in alternative_models]
+  if nr==0:
+    _amod_labels += [am for am in amod_labels]
+    _extra_labels += [am for am in extra_labels]
+  else:
+    _amod_labels += [am+'_'+str(nr) for am in amod_labels]
+    _extra_labels += [am+'_'+str(nr) for am in extra_labels]
+amod_labels = _amod_labels
+extra_labels = _extra_labels
+alternative_models = _alternative_models
 
-# Matplotlib parameters
-co = 'blue'
-ls = '-'
+for dtc in all_detectors:
+  parameters['SNR'+dtc] = np.zeros(len(parameters))
+
+threshold_SNR = np.array([0., 9.])
+if all_detectors[0]=='LISA':
+    svd_threshold = 1e-20
+else:
+    svd_threshold = opts.svd_threshold
 
 no_result = []
+logz_detcombs = {''.join(dtcomb): pd.DataFrame(columns=amod_labels+extra_labels,index=parameters.iloc[range_simulations].index, dtype=np.float64) for dtcomb in detector_combinations}
+#list_JEJJ_cov_dicts = {''.join(dtcomb): [] for dtcomb in detector_combinations}
+if opts.randomize_mem_pe:
+    jejj_columns_covs = ['JE','JJ','JEJJ','dJE','dJJ']
+else:
+    jejj_columns_covs = ['JE','JJ','JEJJ']
+jejj_covs = {''.join(dtcomb): pd.DataFrame(columns=jejj_columns_covs,index=parameters.iloc[range_simulations].index, dtype=np.float64) for dtcomb in detector_combinations}
 
-for kk in tqdm.tqdm(range(len(parameters))):
+for kk in tqdm.tqdm(range_simulations): #tqdm.tqdm(range(len(parameters))):
+  kk_idx = parameters.index[kk]
+
   outfile_name = namebase+'_'+str(kk)+'.pkl'
   parameter_values = parameters.iloc[kk]
   if os.path.exists(totaldir + outfile_name):
@@ -38,100 +115,217 @@ for kk in tqdm.tqdm(range(len(parameters))):
       fm_object = pickle.load(fh)
   else:
     no_result.append(kk)
+    print('No result ', kk)
     continue
 
-  # PE errors
-  errors, _ = gw.fishermatrix.invertSVD(fm_object.fm)
 
-  # SNR
-  network = gw.detection.Network([opts.det], detection_SNR=threshold_SNR, 
-                                 parameters=parameters, 
-                                 fisher_parameters=fisher_parameters, 
-                                 config=opts.config)
-  # Assuming only one detector below, but for ET there are 3 components
-  SNRs = gw.detection.SNR(network.detectors[0], fm_object.derivative.projection_at_parameters, duty_cycle=False)
-  network.detectors[0].SNR[kk] = np.sqrt(np.sum(SNRs ** 2))
+  # Saving the Fisher matrix prior to frequency range cut, for inspection
+  fm_old = fm_object.fm
+  errors_old, _ = gw.fishermatrix.invertSVD(fm_old, thresh=svd_threshold)
+
+  waveform_obj = fm_object.derivative.waveform_object
+  fisco = 1.0 / (np.power(6.0, 1.5) * lal.PI *(waveform_obj._lal_mass_1 + waveform_obj._lal_mass_2) * lal.MTSUN_SI / lal.MSUN_SI)
 
   # Plot waveform
-  waveform_obj = fm_object.derivative.waveform_object
-  f_start, f_end = network.detectors[0].frequencyvector[0], network.detectors[0].frequencyvector[-1]
-  hf = fm_object.derivative.waveform_at_parameters[0]
-  fig, axs = plt.subplots(2,4, figsize=(20, 10), dpi=80)
-  # Time-domain
-  if hasattr(waveform_obj, 'lal_time_ht_plus'):
-    axs[0,0].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+', color=co, linestyle=ls)
-    axs[0,0].set_xlim([-0.01,0.01])
-    axs[1,0].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx', color=co, linestyle=ls)
-    axs[1,0].set_xlim([-0.01,0.01])
-    axs[0,1].plot(waveform_obj.lal_time_ht_plus, waveform_obj._lal_ht_plus.data.data, label='h+', color=co, linestyle=ls)
-    #axs[0,1].set_xlim([-10,-1])
-    axs[1,1].plot(waveform_obj.lal_time_ht_cross, waveform_obj._lal_ht_plus.data.data, label='hx', color=co, linestyle=ls)
-    axs[1,1].set_xlim([waveform_obj.lal_time_ht_cross[0],waveform_obj.lal_time_ht_cross[0]+100])
-  ## Frequency-domain
-  axs[0,2].loglog(network.detectors[0].frequencyvector, np.real(hf[:,0]), label='Re(h+)', color=co, linestyle=ls)
-  #axs[0,2].set_xlim([f_start + 10,f_start + 20])
-  axs[1,2].loglog(network.detectors[0].frequencyvector, np.real(hf[:,1]), label='Re(hx)', color=co, linestyle=ls)
-  axs[1,2].set_xlim([f_start + 10,f_start + 20])
-  axs[0,3].semilogx(network.detectors[0].frequencyvector, np.angle(hf[:,0] - 1j*hf[:,1]), label='Phase', alpha=0.3, color=co, linestyle=ls) # To be replace by np.angle()
-  #axs[0,3].set_xlim([f_start + 10,f_start + 20])
-  axs[1,3].loglog(network.detectors[0].frequencyvector, np.abs(hf[:,0] - 1j*hf[:,1]), label='Abs', color=co, linestyle=ls) # To be replace by np.angle()
-  axs[0,0].set_xlabel('Time [s]')
-  axs[1,0].set_xlabel('Time [s]')
-  axs[0,1].set_xlabel('Time [s]')
-  axs[1,1].set_xlabel('Time [s]')
-  axs[0,0].set_ylabel('hp')
-  axs[1,0].set_ylabel('hx')
-  axs[0,1].set_ylabel('hp')
-  axs[1,1].set_ylabel('hx')
-  axs[0,2].set_xlabel('Frequency [Hz]')
-  axs[1,2].set_xlabel('Frequency [Hz]')
-  axs[0,3].set_xlabel('Frequency [Hz]')
-  axs[1,3].set_xlabel('Frequency [Hz]')
-  axs[0,2].set_ylabel('hp')
-  axs[1,2].set_ylabel('hx')
-  axs[0,3].set_ylabel('Complex strain phase')
-  axs[1,3].set_ylabel('Complex strain amplitude') 
-  plt.tight_layout()
-  plt.legend()
-  plt.savefig(totaldir+namebase+'_'+str(kk)+'_waveform.png')
-  plt.close()
+  #pu.plot_waveform(waveform_obj, totaldir+namebase+'_'+str(kk)+'_waveform.png', fisco)
 
-  # Corner plot
-  cc = ChainConsumer()
-  chain_sim = np.random.multivariate_normal(np.array([parameter_values[key] for key in fisher_parameters]), errors, size=10000)
-  cc.add_chain(chain_sim, parameters=fisher_parameters)
-  cc.configure(usetex=False)
-  fig = cc.plotter.plot()
-  plt.savefig(totaldir+namebase+'_'+str(kk)+'_pe.png')
-  plt.close()
-
-  # Model selection
-  # Original model
-  error_matrix = pd.DataFrame(errors, columns=fisher_parameters, index=fisher_parameters)
-  fisher_matrix = pd.DataFrame(fm_object.fm, columns=fisher_parameters, index=fisher_parameters)
+  # Calculating PE errors for individual detectors
+  error_matrix = {}
+  fisher_matrix = {}
   true_values = pd.DataFrame(data=np.array([parameter_values[key] for key in fisher_parameters]), index=fisher_parameters)
-  log_z_true = gu.log_z(error_matrix, 0.0)
-  # Models where we fix one parameter
-  #alternative_models = [('J_E', opts.j_e), ('J_E', 1 - opts.j_e), ('J_J', opts.j_j), ('J_J', 1 - opts.j_j)]
-  alternative_models = [('mass_1', 35.6), ('mass_1', 35.7), ('mass_2', 30.6), ('mass_2', 30.7)]
-  log_zs = {}
-  cc = ChainConsumer()
-  cc.add_chain(chain_sim, parameters=fisher_parameters, name='Correct model, J_E '+str(opts.j_e)+', J_J '+str(opts.j_j))
-  for am in alternative_models:
-      log_zs[str(am)], newcov, newmu = gu.log_z_alternative_model(am[0], am[1], error_matrix, true_values, invcov=fisher_matrix)
-      cc.add_chain(np.random.multivariate_normal(newmu.to_numpy()[:,0], newcov,size=10000), parameters=newmu.index.to_list(), name=str(am)+', logBF^true_this='+str(log_z_true - log_zs[str(am)]))
-  # Model where we fix one more parameter
-  #extra = ('J_E', 1 - opts.j_e)
-  extra = ('mass_1', 35.6)
-  newfisher, _ = gw.fishermatrix.invertSVD(newcov)
-  newfisher_matrix = pd.DataFrame(newfisher, columns=newcov.columns, index=newcov.index)
-  log_z_2, newcov_2, newmu_2 = gu.log_z_alternative_model(extra[0], extra[1], newcov, newmu, invcov=newfisher_matrix)
-  cc.add_chain(np.random.multivariate_normal(newmu_2.to_numpy()[:,0], newcov_2,size=10000), parameters=newmu_2.index.to_list(), name=str(am)+str(extra)+', logBF^true_this='+str(log_z_true - log_z_2))
-  # Make a plot
-  cc.configure(usetex=False)
-  fig = cc.plotter.plot()
-  plt.savefig(totaldir+namebase+'_'+str(kk)+'_pe_misspec.png')
-  plt.close()
+
+  for dtc in all_detectors:
+
+    # General
+    network = gw.detection.Network([dtc], detection_SNR=threshold_SNR,
+                                   parameters=parameters,
+                                   fisher_parameters=fisher_parameters,
+                                   config=opts.config)
+
+    # Remove too-high frequencies with artefacts and re-calculate Fisher matrix
+    #fm_object = gw.fishermatrix.FisherMatrix(fm_object.derivative.waveform_object, parameter_values, fisher_parameters, network.detectors[0])
+    fm_object.detector = network.detectors[0]
+    fm_object.derivative.detector = network.detectors[0]
+    fm_object.detector.frequency_mask = np.squeeze(network.detectors[0].frequencyvector <= 6.5 * fisco)
+    fm_object.derivative.projection_at_parameters = None # Removing default chached ET projection
+
+    if network.detectors[0].name=='LISA':
+        network.detectors[0].frequencyvector = waveform_obj.frequencyvector[:,np.newaxis]
+        network.detectors[0].frequency_mask = np.squeeze(network.detectors[0].frequencyvector <= 6.5*waveform_obj.fisco)
+        fm_object.detector = network.detectors[0]
+        fm_object.derivative.detector = network.detectors[0]
+        fm_object.detector.frequency_mask = np.squeeze(network.detectors[0].frequencyvector <= 6.5 * fisco)
+
+    # This is for the case where we do not cache waveform parameters
+    # In some LISA calculations I did, in some I did not (e.g. 1000 simulations)
+    # It is much faster!
+    if network.detectors[0].name!='LISA':
+        fm_object.update_fm()
+
+        # SNR
+        # Assuming only one detector below, but for ET there are 3 components
+        SNRs = gw.detection.SNR(network.detectors[0], fm_object.derivative.projection_at_parameters, duty_cycle=False)
+        parameters['SNR'+dtc].iloc[kk] = np.sqrt(np.sum(SNRs ** 2))
+
+    # PE errors
+    errors, _ = gw.fishermatrix.invertSVD(fm_object.fm)
+
+    # Model selection
+    # Original model
+    error_matrix[dtc] = pd.DataFrame(errors, columns=fisher_parameters, index=fisher_parameters)
+    fisher_matrix[dtc] = pd.DataFrame(fm_object.fm, columns=fisher_parameters, index=fisher_parameters)
+
+  # Calculating model misspecification, evidence, for detector combinations/networks
+  em_comb = {}
+  fm_comb = {}
+  for dtcomb in detector_combinations:
+    dtcomb_label = ''.join(dtcomb)
+    for dtc in dtcomb:
+      if dtcomb_label in fm_comb.keys():
+        fm_comb[dtcomb_label] += fisher_matrix[dtc]
+      else:
+        fm_comb[dtcomb_label] = fisher_matrix[dtc]
+    em_comb[dtcomb_label], _ = gw.fishermatrix.invertSVD(fm_comb[dtcomb_label].to_numpy(), thresh=svd_threshold)
+    em_comb[dtcomb_label] = pd.DataFrame(em_comb[dtcomb_label], columns=fisher_parameters, index=fisher_parameters)
+
+    # Saving covariance (works only for one detector in a combination)
+    jejj = fm_comb[dtcomb_label][["J_E","J_J"]].loc[["J_E","J_J"]]
+    jejj_covs[dtcomb_label]['JE'].loc[kk_idx] = jejj['J_E'].loc['J_E']
+    jejj_covs[dtcomb_label]['JJ'].loc[kk_idx] = jejj['J_J'].loc['J_J']
+    jejj_covs[dtcomb_label]['JEJJ'].loc[kk_idx] = jejj['J_E'].loc['J_J']
+    if opts.randomize_mem_pe:
+        fd_noise = gu.gaussian_noise_fd(network.detectors[0].components[0].Sn(network.detectors[0].frequencyvector),waveform_obj.delta_f,n_realiz=len(network.detectors[0].components))
+        n_s = np.array([gw.auxiliary.scalar_product(fd_noise,fm_object.derivative.with_respect_to(pp),network.detectors[0]) for pp in fisher_parameters])
+        offsets = np.dot(em_comb[dtcomb_label],n_s[:,0])
+        jejj_covs[dtcomb_label]['dJE'].loc[kk_idx] = offsets[-2]
+        jejj_covs[dtcomb_label]['dJJ'].loc[kk_idx] = offsets[-1]
+
+    #list_JEJJ_cov_dicts[dtcomb_label].append(em_comb[dtcomb_label][["J_E","J_J"]].loc[["J_E","J_J"]])
+
+    ### === UNCOMMENT 3 # BELOW === ###
+    ###log_z_true = gu.log_z(em_comb[dtcomb_label], 0.0)
+    #### Models where we fix one parameter
+    ###log_zs = {}
+    ###newmu = {}
+    ###newcov = {}
+    ###newmu_2 = {}
+    ###newcov_2 = {}
+    ###for am, labm, labe in zip(alternative_models,amod_labels,extra_labels):
+
+    ###  if '_' in labm: # This indicates a noise realization
+    ###    true_values = pd.DataFrame(data=np.random.multivariate_normal(np.array([parameter_values[key] for key in fisher_parameters]), em_comb[dtcomb_label], size=1)[0,:], index=fisher_parameters)
+    ###  else:
+    ###    true_values = pd.DataFrame(data=np.array([parameter_values[key] for key in fisher_parameters]), index=fisher_parameters)
+
+    ###  log_zs[labm], newcov[labm], newmu[labm], loglr = gu.log_z_alternative_model(am[0], am[1], em_comb[dtcomb_label], true_values, invcov=fm_comb[dtcomb_label])
+    ###  extra = extra_model(am, opts)
+
+    ###  if extra is not None:
+    ###    try:
+    ###        newfisher, _ = gw.fishermatrix.invertSVD(newcov[labm], thresh=svd_threshold)
+    ###        newfisher_matrix = pd.DataFrame(newfisher, columns=newcov[labm].columns, index=newcov[labm].index)
+    ###        log_zs[labe], newcov_2[labe], newmu_2[labe], loglr_2 = gu.log_z_alternative_model(extra[0], extra[1], newcov[labm], newmu[labm], invcov=newfisher_matrix, log_l_max=loglr)
+    ###    except:
+    ###        log_zs[labe], newcov_2[labe], newmu_2[labe], loglr_2 = np.nan, np.nan, np.nan, np.nan
+    ###        print('SVD error in extra memory parameter:', am, extra, kk, dtcomb)
+
+    ####logz_detcombs[dtcomb_label].append(log_zs)
+    ###logz_detcombs[dtcomb_label].loc[kk_idx] = log_zs
+
+  ## Corner plot
+  #cc = ChainConsumer()
+  #for dtcomb in detector_combinations:
+  #  dtcomb_label = ''.join(dtcomb)
+  #  chain_sim = np.random.multivariate_normal(np.array([parameter_values[key] for key in fisher_parameters]), em_comb[dtcomb_label], size=10000)
+  #  cc.add_chain(chain_sim, parameters=fisher_parameters, name=dtcomb_label+': After 6.5*fisco cut')
+  #chain_sim_old = np.random.multivariate_normal(np.array([parameter_values[key] for key in fisher_parameters]), errors_old, size=10000)
+  #cc.add_chain(chain_sim_old, parameters=fisher_parameters, name='Before 6.5*fisco cut')
+  #cc.configure(usetex=False)
+  #fig = cc.plotter.plot()
+  #plt.savefig(totaldir+namebase+'_'+str(kk)+'_pe.png')
+  #plt.close()
+
+  ## Plot model misspecification
+  #cc = ChainConsumer()
+  #cc.add_chain(chain_sim, parameters=fisher_parameters, name='Correct model, J_E '+str(opts.j_e)+', J_J '+str(opts.j_j))
+  #for am, labm, labe in zip(alternative_models, amod_labels, extra_labels):
+  #  cc.add_chain(np.random.multivariate_normal(newmu[labm].to_numpy()[:,0], newcov[labm],size=10000), parameters=newmu[labm].index.to_list(), name=labm+', logBF^true_this='+str(log_z_true - log_zs[labm]))
+  #  extra = extra_model(am, opts)
+
+  #  if extra is not None:
+  #    cc.add_chain(np.random.multivariate_normal(newmu_2[labe].to_numpy()[:,0], newcov_2[labe],size=10000), parameters=newmu_2[labe].index.to_list(), name=labe+', logBF^true_this='+str(log_z_true - log_zs[labe]))
+
+  ## Make a plot
+  #cc.configure(usetex=False)
+  #fig = cc.plotter.plot()
+  #plt.savefig(totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_pe_misspec.png')
+  #plt.close()
+
+  del waveform_obj
+  del fm_object
 
   # Save key numbers
   #import ipdb; ipdb.set_trace()
+
+#with open(totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_logzs.json','w') as fj:
+#  json.dump(logz_detcombs, fj)
+#print(totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_logzs.json')
+
+for dtcomb in detector_combinations:
+  dtcomb_label = ''.join(dtcomb)
+
+  ### === UNCOMMENT 3 # BELOW === ###
+  ###logzs_file_name = totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(opts.inj)+'_noise_'+str(opts.noise)+'_logzs.json'
+  ###print('Saving',logzs_file_name)
+  ###logz_detcombs[dtcomb_label].to_hdf(logzs_file_name, mode='w', key='root')
+
+  if opts.randomize_mem_pe:
+    jejj_cov_file_name = totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(opts.inj)+'_covjejj_noise.json'
+  else:
+    jejj_cov_file_name = totaldir+namebase+'_'+str(kk)+'_'+dtcomb_label+'_'+str(opts.num)+'_'+str(opts.inj)+'_covjejj.json'
+  print('Saving',jejj_cov_file_name)
+  jejj_covs[dtcomb_label].to_hdf(jejj_cov_file_name, mode='w', key='root')
+
+#for dtcomb in detector_combinations:
+#  dtcomb_label = ''.join(dtcomb)
+#  #dict_z = pd.DataFrame.from_dict(logz_detcombs[dtcomb_label])
+#  dict_z = logz_detcombs[dtcomb_label]
+#  
+#  je1jj1_ebms_key = [kk for kk in dict_z.keys() if '(\'J_E\', 1.0)' in kk and '(\'J_J\', 1.0)' in kk][0]
+#  je0jj0_poincare_key = [kk for kk in dict_z.keys() if '(\'J_E\', 0.0)' in kk and '(\'J_J\', 0.0)' in kk][0]
+#  je1jj0_bms_key = [kk for kk in dict_z.keys() if '(\'J_E\', 1.0)' in kk and '(\'J_J\', 0.0)' in kk][0]
+#  
+#  je0jj1_spinmonly_key = [kk for kk in dict_z.keys() if '(\'J_E\', 0.0)' in kk and '(\'J_J\', 1.0)' in kk][0]
+#  
+#  ebms_vs_bms = dict_z[je1jj1_ebms_key] - dict_z[je1jj0_bms_key]
+#  ebms_vs_poincare = dict_z[je1jj1_ebms_key] - dict_z[je0jj0_poincare_key]
+#  bms_vs_poincare = dict_z[je1jj0_bms_key] - dict_z[je0jj0_poincare_key]
+#  
+#  spinmonly_vs_poincare = dict_z[je0jj1_spinmonly_key] - dict_z[je0jj0_poincare_key]
+#  
+#  # Plot sorted evidence for model combinations as a function of event number
+#  fig, ax = plt.subplots(figsize=(8, 5))
+#  indices = np.linspace(1,len(bms_vs_poincare),len(bms_vs_poincare))
+#  indices_major = np.arange(1,len(bms_vs_poincare),15)
+#  ax.loglog(indices, bms_vs_poincare.sort_values(ascending=False).cumsum().values,label='$\ln \mathcal{B}^{\mathrm{BMS}}_{Poincare}$')
+#  ax.loglog(indices, ebms_vs_poincare.sort_values(ascending=False).cumsum().values,label='$\ln \mathcal{B}^{\mathrm{eBMS}}_{Poincare}$')
+#  ax.loglog(indices, ebms_vs_bms.sort_values(ascending=False).cumsum().values,label='$\ln \mathcal{B}^{\mathrm{eBMS}}_{BMS}$')
+#  ax.axhline(5., color='red', linestyle=':', label='Detection threshold')
+#  ax.legend()
+#  ax.set_xticks(indices_major)
+#  ax.set_xticks(indices, minor=True)
+#  ax.grid(which='both')
+#  ax.set_ylabel('Cumulative evidence, $\ln\mathcal{B}$')
+#  ax.set_xlabel('Number of detections, sorted by evidence')
+#  plt.xlim([1,indices[-1]])
+#  plt.tight_layout()
+#  plt.savefig(totaldir+'_evidence_n_'+opts.label+'_'+dtcomb_label+'.png')
+#  plt.close()
+
+#import ipdb; ipdb.set_trace()
+
+#jj=dict_z['(\'J_J\', 1.0)'] - dict_z['(\'J_J\', 0.0)']
+#je = dict_z['(\'J_E\', 1.0)'] - dict_z['(\'J_E\', 0.0)']
+#jejj = dict_z['(\'J_E\', 1.0)(\'J_J\', 1.0)'] - dict_z['(\'J_J\', 0.0)(\'J_E\', 0.0)']
+
+# Show how log Bayes factor grows as a function of (significant) detections

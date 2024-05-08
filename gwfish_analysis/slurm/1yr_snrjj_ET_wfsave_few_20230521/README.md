@@ -1,0 +1,1 @@
+Here, the population was incorrect. It had inclination for events between 0 and 180 degrees, probability centered at 90 degrees (which yields the highest memory amplitude). Instead, it should be between -90 and 90 degrees.
