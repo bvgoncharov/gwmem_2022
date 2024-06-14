@@ -1,12 +1,29 @@
 # gwmem_2022
 
-Simulation of the gravitational wave memory signals for LISA and ground-based detectors (LIGO-Virgo, LIGO Voyager, Einstein Telescope, Cosmic Explorer). Model selection and parameter estimation. 
+Simulation of the gravitational wave memory signals for LISA and ground-based detectors (LIGO-Virgo, LIGO Voyager, Einstein Telescope, Cosmic Explorer). Model selection and parameter estimation. Based on the paper: 
 
-Based on the paper: 
+**Inferring fundamental spacetime symmetries with gravitational-wave memory: from LISA to the Einstein Telescope** [[arXiv](https://arxiv.org/abs/2310.10718) | [PRL](https://link.aps.org/doi/10.1103/PhysRevLett.132.241401)]
 
-[Inferring fundamental spacetime symmetries with gravitational-wave memory: from LISA to the Einstein Telescope](https://arxiv.org/abs/2310.10718)
+*Boris Goncharov, Laura Donnay, Jan Harms (2024)*
 
-*Boris Goncharov, Laura Donnay, Jan Harms (2024, PRL)*
+## Citation
+
+```
+@article{PhysRevLett.132.241401,
+  title = {Inferring Fundamental Spacetime Symmetries with Gravitational-Wave Memory: From LISA to the Einstein Telescope},
+  author = {Goncharov, Boris and Donnay, Laura and Harms, Jan},
+  journal = {Phys. Rev. Lett.},
+  volume = {132},
+  issue = {24},
+  pages = {241401},
+  numpages = {7},
+  year = {2024},
+  month = {Jun},
+  publisher = {American Physical Society},
+  doi = {10.1103/PhysRevLett.132.241401},
+  url = {https://link.aps.org/doi/10.1103/PhysRevLett.132.241401}
+}
+```
 
 ## Environment to run the code
 
